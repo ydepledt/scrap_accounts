@@ -13,6 +13,9 @@ python -m playwright install chromium
 
 If you only want URL normalization or dry-run commands, the CLI can show help without Playwright or yt-dlp being importable.
 
+Default paths, scraping values, download retries, and supported cookie browsers are
+configured in `src/scrap_insta/config.toml`. Command-line options override these defaults.
+
 ## Commands
 
 Normalize URLs from a pasted text file:
@@ -39,13 +42,23 @@ Download a normalized URL file:
 scrap-insta download --input scraped_instagram_urls.txt --output-dir instagram_downloads --cookies-from-browser chrome
 ```
 
+The download phase extracts each video's description, hashtags/tags, and the first
+10 comments into the JSON and CSV reports. Change the number with
+`--comments-limit N` (or `comments_limit` in `config.toml`), and use `0` to skip
+comments:
+
+```bash
+scrap-insta download --input scraped_instagram_urls.txt --comments-limit 25 --cookies-from-browser chrome
+```
+
 Run the full manual backup flow:
 
 ```bash
 scrap-insta backup --output-dir instagram_downloads --cookies-from-browser chrome --stop-when-no-new
 ```
 
-Every download or backup run writes JSON and CSV reports with URL, source, status, output path, and error details.
+Every download or backup run writes JSON and CSV reports with URL, source, status,
+output path, description, tags, comments, and error details.
 
 ## Compatibility
 

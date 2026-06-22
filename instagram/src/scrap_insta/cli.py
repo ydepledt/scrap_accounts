@@ -6,19 +6,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .browser import scrape_visible_urls
-from .constants import (
-    COOKIE_BROWSER_CHOICES,
-    DEFAULT_MAX_IDLE_SCROLLS,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DIR,
-    DEFAULT_RESOLVED_URLS_OUTPUT,
-    DEFAULT_RETRIES,
-    DEFAULT_SCROLL_DELAY_MS,
-    DEFAULT_SCROLL_PIXELS,
-    DEFAULT_SCROLLS,
-    DEFAULT_URLS_OUTPUT,
-    INSTAGRAM_LOGIN_URL,
-)
+from .config import CONFIG
 from .downloader import download_urls
 from .files import load_urls_from_file, write_urls_to_file
 from .models import DownloadConfig, ScrapeConfig
@@ -45,7 +33,7 @@ def _add_cookie_options(parser: argparse.ArgumentParser) -> None:
     cookie_group = parser.add_mutually_exclusive_group()
     cookie_group.add_argument(
         "--cookies-from-browser",
-        choices=COOKIE_BROWSER_CHOICES,
+        choices=CONFIG.cookie_browser_choices,
         default=None,
         help="Read yt-dlp cookies from a logged-in browser profile.",
     )
@@ -60,7 +48,7 @@ def _add_cookie_options(parser: argparse.ArgumentParser) -> None:
 def _add_download_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--output-dir",
-        default=DEFAULT_OUTPUT_DIR,
+        default=CONFIG.output_dir,
         type=Path,
         help="Directory where downloaded media and archives are written.",
     )
@@ -73,9 +61,15 @@ def _add_download_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--retries",
-        default=DEFAULT_RETRIES,
+        default=CONFIG.retries,
         type=non_negative_int,
         help="Number of yt-dlp retries per URL.",
+    )
+    parser.add_argument(
+        "--comments-limit",
+        default=CONFIG.comments_limit,
+        type=non_negative_int,
+        help="Extract the first N comments per video; use 0 to disable.",
     )
     parser.add_argument(
         "--overwrite",
@@ -100,18 +94,18 @@ def _add_download_options(parser: argparse.ArgumentParser) -> None:
 def _add_scrape_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--start-url",
-        default=INSTAGRAM_LOGIN_URL,
+        default=CONFIG.instagram_login_url,
         help="Page opened before manual navigation.",
     )
     parser.add_argument(
         "--profile-dir",
-        default=DEFAULT_PROFILE_DIR,
+        default=CONFIG.profile_dir,
         type=Path,
         help="Local persistent Playwright profile directory.",
     )
     parser.add_argument(
         "--scrolls",
-        default=DEFAULT_SCROLLS,
+        default=CONFIG.scrolls,
         type=non_negative_int,
         help="Number of scroll gestures to perform.",
     )
@@ -122,13 +116,13 @@ def _add_scrape_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--scroll-delay-ms",
-        default=DEFAULT_SCROLL_DELAY_MS,
+        default=CONFIG.scroll_delay_ms,
         type=non_negative_int,
         help="Delay after each scroll.",
     )
     parser.add_argument(
         "--scroll-pixels",
-        default=DEFAULT_SCROLL_PIXELS,
+        default=CONFIG.scroll_pixels,
         type=positive_int,
         help="Vertical pixels per scroll gesture.",
     )
@@ -140,7 +134,7 @@ def _add_scrape_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--max-idle-scrolls",
-        default=DEFAULT_MAX_IDLE_SCROLLS,
+        default=CONFIG.max_idle_scrolls,
         type=positive_int,
         help="Idle scrolls allowed before stopping when --stop-when-no-new is set.",
     )
@@ -183,6 +177,7 @@ def _download_config_from_args(
         cookies_file=args.cookies_file,
         archive_file=args.archive_file,
         retries=args.retries,
+        comments_limit=args.comments_limit,
         skip_existing=args.skip_existing,
         dry_run=args.dry_run,
         command=command,
@@ -224,7 +219,7 @@ def run_download_command(args: argparse.Namespace) -> int:
 
 def run_backup_command(args: argparse.Namespace) -> int:
     scraped_urls = scrape_visible_urls(_scrape_config_from_args(args))
-    urls_output = args.urls_output or args.output_dir / DEFAULT_URLS_OUTPUT
+    urls_output = args.urls_output or args.output_dir / CONFIG.urls_output
     write_urls_to_file(scraped_urls, urls_output)
     LOGGER.info("Scraped URLs: %s", len(scraped_urls))
     LOGGER.info("URL file written: %s", urls_output)
@@ -287,7 +282,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     normalize_parser.add_argument("--input", required=True, type=Path, help="Input text file.")
     normalize_parser.add_argument(
         "--output",
-        default=DEFAULT_RESOLVED_URLS_OUTPUT,
+        default=CONFIG.resolved_urls_output,
         type=Path,
         help="Normalized URL output file.",
     )
@@ -299,7 +294,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     scrape_parser.add_argument(
         "--output",
-        default=DEFAULT_URLS_OUTPUT,
+        default=CONFIG.urls_output,
         type=Path,
         help="Scraped URL output file.",
     )
@@ -335,7 +330,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     workaround_parser.add_argument("--urls-file", required=True, type=Path, help="Input URL file.")
     workaround_parser.add_argument(
         "--resolved-urls-file",
-        default=DEFAULT_RESOLVED_URLS_OUTPUT,
+        default=CONFIG.resolved_urls_output,
         type=Path,
         help="Normalized URL output file.",
     )
@@ -353,7 +348,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     browser_parser.add_argument(
         "--urls-output",
-        default=DEFAULT_URLS_OUTPUT,
+        default=CONFIG.urls_output,
         type=Path,
         help="Scraped URL output file.",
     )

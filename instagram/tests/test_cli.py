@@ -22,6 +22,13 @@ def test_cli_rejects_invalid_scroll_argument() -> None:
     assert exc_info.value.code == 2
 
 
+def test_cli_rejects_negative_comments_limit() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["download", "--input", "urls.txt", "--comments-limit", "-1"])
+
+    assert exc_info.value.code == 2
+
+
 def test_cli_rejects_unlimited_scrolls_without_stop_condition() -> None:
     assert cli.main(["scrape", "--unlimited-scrolls", "--headless"]) == 1
 

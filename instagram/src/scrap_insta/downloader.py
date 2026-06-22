@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from .models import DownloadConfig, DownloadItemResult, RunReport
 from .urls import deduplicate_normalized_urls
 
 LOGGER = logging.getLogger(__name__)
+HASHTAG_RE = re.compile(r"(?<!\w)#(\w+)", re.UNICODE)
 
 
 def _load_youtube_dl_class() -> type[Any]:
@@ -33,6 +35,7 @@ def _build_ydl_options(config: DownloadConfig) -> dict[str, Any]:
         "retries": config.retries,
         "continuedl": True,
         "overwrites": not config.skip_existing,
+        "getcomments": config.comments_limit > 0,
     }
 
     if config.cookies_from_browser is not None:
@@ -52,6 +55,49 @@ def _output_path_for(downloader: Any, info: dict[str, Any] | None) -> str | None
         return None
 
 
+def _description_for(info: dict[str, Any]) -> str | None:
+    for field_name in ("description", "title"):
+        value = info.get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _tags_for(info: dict[str, Any], description: str | None) -> list[str]:
+    tags: list[str] = []
+    raw_tags = info.get("tags")
+    if isinstance(raw_tags, (list, tuple)):
+        tags.extend(tag.strip().lstrip("#") for tag in raw_tags if isinstance(tag, str))
+    if description:
+        tags.extend(HASHTAG_RE.findall(description))
+
+    return list(dict.fromkeys(tag for tag in tags if tag))
+
+
+def _comments_for(info: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    if limit == 0:
+        return []
+    raw_comments = info.get("comments")
+    if not isinstance(raw_comments, list):
+        return []
+
+    comments: list[dict[str, Any]] = []
+    fields = ("id", "author", "author_id", "text", "timestamp", "like_count", "parent")
+    for raw_comment in raw_comments:
+        if not isinstance(raw_comment, dict):
+            continue
+        comment = {
+            field_name: raw_comment[field_name]
+            for field_name in fields
+            if raw_comment.get(field_name) is not None
+        }
+        if comment:
+            comments.append(comment)
+        if len(comments) >= limit:
+            break
+    return comments
+
+
 def download_urls(
     config: DownloadConfig,
     youtube_dl_class: type[Any] | None = None,
@@ -63,6 +109,7 @@ def download_urls(
             "dry_run": config.dry_run,
             "output_dir": str(config.output_dir),
             "archive_file": str(_archive_file_for(config)),
+            "comments_limit": config.comments_limit,
         },
     )
 
@@ -120,11 +167,16 @@ def download_urls(
                 continue
 
             report.items.append(
+                # yt-dlp exposes captions as `description`, post hashtags as
+                # `tags`, and extractor-supported comments as `comments`.
                 DownloadItemResult(
                     url=url,
                     source=config.source,
                     status="downloaded",
                     output_path=_output_path_for(downloader, info),
+                    description=(description := _description_for(info)),
+                    tags=_tags_for(info, description),
+                    comments=_comments_for(info, config.comments_limit),
                 )
             )
 

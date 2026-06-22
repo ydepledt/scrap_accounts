@@ -54,6 +54,9 @@ def test_write_report_files_serializes_json_and_csv(tmp_path) -> None:
                 source="input",
                 status="downloaded",
                 output_path="/tmp/AAA.mp4",
+                description="A reel #test",
+                tags=["test"],
+                comments=[{"author": "alice", "text": "Nice!"}],
             ),
             DownloadItemResult(
                 url="https://www.instagram.com/reel/BBB/",
@@ -79,6 +82,9 @@ def test_write_report_files_serializes_json_and_csv(tmp_path) -> None:
             "source": "input",
             "status": "downloaded",
             "output_path": "/tmp/AAA.mp4",
+            "description": "A reel #test",
+            "tags": '["test"]',
+            "comments": '[{"author": "alice", "text": "Nice!"}]',
             "error": "",
         },
         {
@@ -86,6 +92,9 @@ def test_write_report_files_serializes_json_and_csv(tmp_path) -> None:
             "source": "input",
             "status": "failed",
             "output_path": "",
+            "description": "",
+            "tags": "[]",
+            "comments": "[]",
             "error": "boom",
         },
     ]

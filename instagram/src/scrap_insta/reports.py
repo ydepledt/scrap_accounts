@@ -6,7 +6,16 @@ from pathlib import Path
 
 from .models import RunReport
 
-REPORT_FIELDS = ("url", "source", "status", "output_path", "error")
+REPORT_FIELDS = (
+    "url",
+    "source",
+    "status",
+    "output_path",
+    "description",
+    "tags",
+    "comments",
+    "error",
+)
 
 
 def write_json_report(report: RunReport, output_file: Path) -> None:
@@ -23,7 +32,10 @@ def write_csv_report(report: RunReport, output_file: Path) -> None:
         writer = csv.DictWriter(csv_file, fieldnames=REPORT_FIELDS)
         writer.writeheader()
         for item in report.items:
-            writer.writerow(item.to_dict())
+            row = item.to_dict()
+            row["tags"] = json.dumps(row["tags"], ensure_ascii=False)
+            row["comments"] = json.dumps(row["comments"], ensure_ascii=False)
+            writer.writerow(row)
 
 
 def write_report_files(

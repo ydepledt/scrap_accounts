@@ -5,19 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeAlias
 
-from .constants import (
-    COOKIE_BROWSER_CHOICES,
-    DEFAULT_BROWSER_HEIGHT,
-    DEFAULT_BROWSER_WIDTH,
-    DEFAULT_MAX_IDLE_SCROLLS,
-    DEFAULT_OUTPUT_DIR,
-    DEFAULT_PROFILE_DIR,
-    DEFAULT_RETRIES,
-    DEFAULT_SCROLL_DELAY_MS,
-    DEFAULT_SCROLL_PIXELS,
-    DEFAULT_SCROLLS,
-    INSTAGRAM_LOGIN_URL,
-)
+from .config import CONFIG
 
 
 def utc_now_iso() -> str:
@@ -26,17 +14,17 @@ def utc_now_iso() -> str:
 
 @dataclass(frozen=True)
 class ScrapeConfig:
-    start_url: str = INSTAGRAM_LOGIN_URL
-    profile_dir: Path = DEFAULT_PROFILE_DIR
-    scrolls: int | None = DEFAULT_SCROLLS
-    scroll_delay_ms: int = DEFAULT_SCROLL_DELAY_MS
-    scroll_pixels: int = DEFAULT_SCROLL_PIXELS
+    start_url: str = CONFIG.instagram_login_url
+    profile_dir: Path = CONFIG.profile_dir
+    scrolls: int | None = CONFIG.scrolls
+    scroll_delay_ms: int = CONFIG.scroll_delay_ms
+    scroll_pixels: int = CONFIG.scroll_pixels
     limit: int | None = None
-    max_idle_scrolls: int = DEFAULT_MAX_IDLE_SCROLLS
+    max_idle_scrolls: int = CONFIG.max_idle_scrolls
     stop_when_no_new: bool = False
     headless: bool = False
-    browser_width: int = DEFAULT_BROWSER_WIDTH
-    browser_height: int = DEFAULT_BROWSER_HEIGHT
+    browser_width: int = CONFIG.browser_width
+    browser_height: int = CONFIG.browser_height
     prompt_for_manual_navigation: bool = True
 
     def validate(self) -> None:
@@ -61,11 +49,12 @@ class ScrapeConfig:
 @dataclass(frozen=True)
 class DownloadConfig:
     urls: list[str]
-    output_dir: Path = DEFAULT_OUTPUT_DIR
+    output_dir: Path = CONFIG.output_dir
     cookies_from_browser: str | None = None
     cookies_file: Path | None = None
     archive_file: Path | None = None
-    retries: int = DEFAULT_RETRIES
+    retries: int = CONFIG.retries
+    comments_limit: int = CONFIG.comments_limit
     skip_existing: bool = True
     dry_run: bool = False
     command: str = "download"
@@ -74,13 +63,15 @@ class DownloadConfig:
     def validate(self) -> None:
         if self.retries < 0:
             raise ValueError("retries must be zero or greater.")
+        if self.comments_limit < 0:
+            raise ValueError("comments-limit must be zero or greater.")
         if self.cookies_from_browser and self.cookies_file:
             raise ValueError("Use either cookies-from-browser or cookies-file, not both.")
         if (
             self.cookies_from_browser is not None
-            and self.cookies_from_browser not in COOKIE_BROWSER_CHOICES
+            and self.cookies_from_browser not in CONFIG.cookie_browser_choices
         ):
-            choices = ", ".join(COOKIE_BROWSER_CHOICES)
+            choices = ", ".join(CONFIG.cookie_browser_choices)
             raise ValueError(f"Unsupported browser for cookies: {self.cookies_from_browser}. Choices: {choices}.")
         if self.cookies_file is not None and not self.cookies_file.exists():
             raise FileNotFoundError(f"Cookies file not found: {self.cookies_file}")
@@ -92,14 +83,20 @@ class DownloadItemResult:
     source: str
     status: str
     output_path: str | None = None
+    description: str | None = None
+    tags: list[str] = field(default_factory=list)
+    comments: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
 
-    def to_dict(self) -> dict[str, str | None]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "url": self.url,
             "source": self.source,
             "status": self.status,
             "output_path": self.output_path,
+            "description": self.description,
+            "tags": self.tags,
+            "comments": self.comments,
             "error": self.error,
         }
 

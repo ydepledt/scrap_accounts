@@ -19,11 +19,22 @@ class FakeYoutubeDL:
     def __exit__(self, exc_type, exc, traceback) -> None:
         return None
 
-    def extract_info(self, url: str, download: bool) -> dict[str, str]:
+    def extract_info(self, url: str, download: bool) -> dict[str, Any]:
         if "FAIL" in url:
             raise RuntimeError("download boom")
         code = url.rstrip("/").rsplit("/", 1)[-1]
-        return {"id": code, "ext": "mp4", "uploader": "tester"}
+        return {
+            "id": code,
+            "ext": "mp4",
+            "uploader": "tester",
+            "description": "A test reel #python #scraping",
+            "tags": ["video", "python"],
+            "comments": [
+                {"id": "1", "author": "alice", "text": "First!", "like_count": 2},
+                {"id": "2", "author": "bob", "text": "Nice reel"},
+                {"id": "3", "author": "eve", "text": "Third"},
+            ],
+        }
 
     def prepare_filename(self, info: dict[str, str]) -> str:
         return f"/downloads/{info['uploader']}_{info['id']}.{info['ext']}"
@@ -41,6 +52,7 @@ def test_download_urls_uses_injected_downloader_and_reports_results(tmp_path) ->
             output_dir=tmp_path,
             cookies_from_browser="chrome",
             retries=7,
+            comments_limit=2,
         ),
         youtube_dl_class=FakeYoutubeDL,
     )
@@ -49,8 +61,15 @@ def test_download_urls_uses_injected_downloader_and_reports_results(tmp_path) ->
     assert report.items[0].url == "not-a-url"
     assert report.items[0].status == "failed"
     assert report.items[1].output_path == "/downloads/tester_AAA.mp4"
+    assert report.items[1].description == "A test reel #python #scraping"
+    assert report.items[1].tags == ["video", "python", "scraping"]
+    assert report.items[1].comments == [
+        {"id": "1", "author": "alice", "text": "First!", "like_count": 2},
+        {"id": "2", "author": "bob", "text": "Nice reel"},
+    ]
     assert FakeYoutubeDL.instances[0].options["cookiesfrombrowser"] == ("chrome",)
     assert FakeYoutubeDL.instances[0].options["retries"] == 7
+    assert FakeYoutubeDL.instances[0].options["getcomments"] is True
 
 
 def test_download_urls_dry_run_does_not_require_ytdlp(tmp_path) -> None:
@@ -64,3 +83,18 @@ def test_download_urls_dry_run_does_not_require_ytdlp(tmp_path) -> None:
 
     assert report.status_counts() == {"failed": 1, "dry_run": 1}
     assert report.items[1].url == "https://www.instagram.com/p/AAA/"
+
+
+def test_download_urls_can_disable_comment_extraction(tmp_path) -> None:
+    FakeYoutubeDL.instances.clear()
+    report = download_urls(
+        DownloadConfig(
+            urls=["https://www.instagram.com/reel/AAA/"],
+            output_dir=tmp_path,
+            comments_limit=0,
+        ),
+        youtube_dl_class=FakeYoutubeDL,
+    )
+
+    assert report.items[0].comments == []
+    assert FakeYoutubeDL.instances[0].options["getcomments"] is False

@@ -24,6 +24,9 @@ scrap-insta = "scrap_insta.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+scrap_insta = ["config.toml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
