@@ -1,0 +1,28 @@
+[paths]
+output_dir = "instagram_downloads"
+profile_dir = ".instagram_playwright_profile"
+urls_output = "scraped_instagram_urls.txt"
+resolved_urls_output = "resolved_instagram_urls.txt"
+
+[scrape]
+start_url = "https://www.instagram.com/accounts/login/"
+scrolls = 60
+scroll_delay_ms = 1200
+scroll_pixels = 1800
+browser_width = 1280
+browser_height = 900
+max_idle_scrolls = 5
+
+[download]
+retries = 3
+comments_limit = 10
+cookie_browser_choices = [
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "firefox",
+    "opera",
+    "safari",
+    "vivaldi",
+]
