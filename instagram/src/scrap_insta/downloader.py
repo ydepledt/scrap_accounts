@@ -38,6 +38,22 @@ def _build_ydl_options(config: DownloadConfig) -> dict[str, Any]:
         "getcomments": config.comments_limit > 0,
     }
 
+    if config.format_selector is not None:
+        options["format"] = config.format_selector
+    if config.audio_only:
+        options["format"] = config.format_selector or "bestaudio/best"
+        options["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "0",
+            }
+        ]
+    if config.write_thumbnail:
+        options["writethumbnail"] = True
+    if config.metadata_only:
+        options["skip_download"] = True
+
     if config.cookies_from_browser is not None:
         options["cookiesfrombrowser"] = (config.cookies_from_browser,)
     if config.cookies_file is not None:
@@ -98,6 +114,21 @@ def _comments_for(info: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     return comments
 
 
+def classify_download_error(error: str) -> str:
+    lowered = error.lower()
+    if "invalid" in lowered or "unsupported" in lowered:
+        return "invalid_url"
+    if "login" in lowered or "cookie" in lowered or "sign in" in lowered:
+        return "login_required"
+    if "private" in lowered:
+        return "private"
+    if "not found" in lowered or "404" in lowered or "unavailable" in lowered:
+        return "not_found"
+    if "rate" in lowered or "too many requests" in lowered or "429" in lowered:
+        return "rate_limited"
+    return "yt_dlp_error"
+
+
 def download_urls(
     config: DownloadConfig,
     youtube_dl_class: type[Any] | None = None,
@@ -120,6 +151,7 @@ def download_urls(
                 url=invalid_url,
                 source=config.source,
                 status="failed",
+                error_type="invalid_url",
                 error="Invalid or unsupported Instagram URL.",
             )
         )
@@ -143,14 +175,16 @@ def download_urls(
     with downloader_type(options) as downloader:
         for url in normalized_urls:
             try:
-                info = downloader.extract_info(url, download=True)
+                info = downloader.extract_info(url, download=not config.metadata_only)
             except Exception as exc:
+                error = str(exc)
                 report.items.append(
                     DownloadItemResult(
                         url=url,
                         source=config.source,
                         status="failed",
-                        error=str(exc),
+                        error_type=classify_download_error(error),
+                        error=error,
                     )
                 )
                 continue
@@ -161,6 +195,7 @@ def download_urls(
                         url=url,
                         source=config.source,
                         status="failed",
+                        error_type="yt_dlp_error",
                         error="yt-dlp returned no metadata.",
                     )
                 )
@@ -172,8 +207,12 @@ def download_urls(
                 DownloadItemResult(
                     url=url,
                     source=config.source,
-                    status="downloaded",
-                    output_path=_output_path_for(downloader, info),
+                    status="metadata" if config.metadata_only else "downloaded",
+                    output_path=(
+                        None
+                        if config.metadata_only
+                        else _output_path_for(downloader, info)
+                    ),
                     description=(description := _description_for(info)),
                     tags=_tags_for(info, description),
                     comments=_comments_for(info, config.comments_limit),

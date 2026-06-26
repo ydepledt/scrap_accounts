@@ -15,7 +15,11 @@ max_idle_scrolls = 5
 
 [download]
 retries = 3
-comments_limit = 10
+comments_limit = 400
+format_selector = ""
+audio_only = false
+write_thumbnail = false
+metadata_only = false
 cookie_browser_choices = [
     "brave",
     "chrome",

@@ -13,8 +13,9 @@ python -m playwright install chromium
 
 If you only want URL normalization or dry-run commands, the CLI can show help without Playwright or yt-dlp being importable.
 
-Default paths, scraping values, download retries, and supported cookie browsers are
+Default paths, scraping values, download retries, media options, and supported cookie browsers are
 configured in `src/scrap_insta/config.toml`. Command-line options override these defaults.
+Use `--config custom.toml` before or after a subcommand to load a different config file.
 
 ## Commands
 
@@ -36,6 +37,12 @@ Keep scrolling without a fixed scroll count until repeated scrolls find no new U
 scrap-insta scrape --output scraped_instagram_urls.txt --stop-when-no-new --unlimited-scrolls
 ```
 
+Merge newly scraped URLs into an existing URL file:
+
+```bash
+scrap-insta scrape --output scraped_instagram_urls.txt --append --stop-when-no-new
+```
+
 Download a normalized URL file:
 
 ```bash
@@ -51,6 +58,19 @@ comments:
 scrap-insta download --input scraped_instagram_urls.txt --comments-limit 25 --cookies-from-browser chrome
 ```
 
+Collect metadata without downloading media:
+
+```bash
+scrap-insta download --input scraped_instagram_urls.txt --metadata-only --cookies-from-browser chrome
+```
+
+Control yt-dlp output:
+
+```bash
+scrap-insta download --input scraped_instagram_urls.txt --format "bestvideo+bestaudio/best" --write-thumbnail
+scrap-insta download --input scraped_instagram_urls.txt --audio-only
+```
+
 Run the full manual backup flow:
 
 ```bash
@@ -58,7 +78,31 @@ scrap-insta backup --output-dir instagram_downloads --cookies-from-browser chrom
 ```
 
 Every download or backup run writes JSON and CSV reports with URL, source, status,
-output path, description, tags, comments, and error details.
+output path, description, tags, comments, error type, and error details.
+
+Retry failed URLs from a previous report:
+
+```bash
+scrap-insta retry --report instagram_downloads/download_report.json --cookies-from-browser chrome
+```
+
+Summarize a report:
+
+```bash
+scrap-insta summary --report instagram_downloads/download_report.json
+```
+
+Create a local HTML gallery from a report:
+
+```bash
+scrap-insta gallery --report instagram_downloads/download_report.json --output instagram_downloads/index.html
+```
+
+Compare two URL files:
+
+```bash
+scrap-insta diff --old previous_urls.txt --new scraped_instagram_urls.txt
+```
 
 ## Compatibility
 

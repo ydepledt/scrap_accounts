@@ -20,13 +20,21 @@ class AppConfig:
     max_idle_scrolls: int
     retries: int
     comments_limit: int
+    format_selector: str | None
+    audio_only: bool
+    write_thumbnail: bool
+    metadata_only: bool
     instagram_login_url: str
     cookie_browser_choices: tuple[str, ...]
 
 
-def load_config() -> AppConfig:
-    config_file = files(__package__).joinpath("config.toml")
-    with config_file.open("rb") as stream:
+def load_config(config_file: Path | None = None) -> AppConfig:
+    config_source = (
+        config_file
+        if config_file is not None
+        else files(__package__).joinpath("config.toml")
+    )
+    with config_source.open("rb") as stream:
         values = load(stream)
 
     paths = values["paths"]
@@ -45,6 +53,10 @@ def load_config() -> AppConfig:
         max_idle_scrolls=scrape["max_idle_scrolls"],
         retries=download["retries"],
         comments_limit=download["comments_limit"],
+        format_selector=download.get("format_selector") or None,
+        audio_only=download.get("audio_only", False),
+        write_thumbnail=download.get("write_thumbnail", False),
+        metadata_only=download.get("metadata_only", False),
         instagram_login_url=scrape["start_url"],
         cookie_browser_choices=tuple(download["cookie_browser_choices"]),
     )

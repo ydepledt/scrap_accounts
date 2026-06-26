@@ -55,6 +55,10 @@ class DownloadConfig:
     archive_file: Path | None = None
     retries: int = CONFIG.retries
     comments_limit: int = CONFIG.comments_limit
+    format_selector: str | None = CONFIG.format_selector
+    audio_only: bool = CONFIG.audio_only
+    write_thumbnail: bool = CONFIG.write_thumbnail
+    metadata_only: bool = CONFIG.metadata_only
     skip_existing: bool = True
     dry_run: bool = False
     command: str = "download"
@@ -72,7 +76,10 @@ class DownloadConfig:
             and self.cookies_from_browser not in CONFIG.cookie_browser_choices
         ):
             choices = ", ".join(CONFIG.cookie_browser_choices)
-            raise ValueError(f"Unsupported browser for cookies: {self.cookies_from_browser}. Choices: {choices}.")
+            raise ValueError(
+                f"Unsupported browser for cookies: {self.cookies_from_browser}. "
+                f"Choices: {choices}."
+            )
         if self.cookies_file is not None and not self.cookies_file.exists():
             raise FileNotFoundError(f"Cookies file not found: {self.cookies_file}")
 
@@ -86,6 +93,7 @@ class DownloadItemResult:
     description: str | None = None
     tags: list[str] = field(default_factory=list)
     comments: list[dict[str, Any]] = field(default_factory=list)
+    error_type: str | None = None
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -97,6 +105,7 @@ class DownloadItemResult:
             "description": self.description,
             "tags": self.tags,
             "comments": self.comments,
+            "error_type": self.error_type,
             "error": self.error,
         }
 

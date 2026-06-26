@@ -60,6 +60,7 @@ def test_download_urls_uses_injected_downloader_and_reports_results(tmp_path) ->
     assert report.status_counts() == {"failed": 2, "downloaded": 1}
     assert report.items[0].url == "not-a-url"
     assert report.items[0].status == "failed"
+    assert report.items[0].error_type == "invalid_url"
     assert report.items[1].output_path == "/downloads/tester_AAA.mp4"
     assert report.items[1].description == "A test reel #python #scraping"
     assert report.items[1].tags == ["video", "python", "scraping"]
@@ -98,3 +99,26 @@ def test_download_urls_can_disable_comment_extraction(tmp_path) -> None:
 
     assert report.items[0].comments == []
     assert FakeYoutubeDL.instances[0].options["getcomments"] is False
+
+
+def test_download_urls_supports_metadata_only_and_media_options(tmp_path) -> None:
+    FakeYoutubeDL.instances.clear()
+    report = download_urls(
+        DownloadConfig(
+            urls=["https://www.instagram.com/reel/AAA/"],
+            output_dir=tmp_path,
+            format_selector="best",
+            audio_only=True,
+            write_thumbnail=True,
+            metadata_only=True,
+        ),
+        youtube_dl_class=FakeYoutubeDL,
+    )
+
+    assert report.status_counts() == {"metadata": 1}
+    assert report.items[0].output_path is None
+    options = FakeYoutubeDL.instances[0].options
+    assert options["format"] == "best"
+    assert options["skip_download"] is True
+    assert options["writethumbnail"] is True
+    assert options["postprocessors"][0]["key"] == "FFmpegExtractAudio"

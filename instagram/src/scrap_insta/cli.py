@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import Sequence
 
 from .browser import scrape_visible_urls
-from .config import CONFIG
+from .config import CONFIG, AppConfig, load_config
 from .downloader import download_urls
-from .files import load_urls_from_file, write_urls_to_file
+from .files import diff_url_files, load_urls_from_file, merge_url_lists, write_urls_to_file
+from .gallery import write_html_gallery
 from .models import DownloadConfig, ScrapeConfig
-from .reports import write_report_files
+from .reports import (
+    failed_urls_from_report,
+    read_report_file,
+    summarize_report,
+    write_report_files,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,11 +36,15 @@ def positive_int(value: str) -> int:
     return parsed
 
 
-def _add_cookie_options(parser: argparse.ArgumentParser) -> None:
+def _app_config(args: argparse.Namespace) -> AppConfig:
+    return getattr(args, "app_config", CONFIG)
+
+
+def _add_cookie_options(parser: argparse.ArgumentParser, config: AppConfig) -> None:
     cookie_group = parser.add_mutually_exclusive_group()
     cookie_group.add_argument(
         "--cookies-from-browser",
-        choices=CONFIG.cookie_browser_choices,
+        choices=config.cookie_browser_choices,
         default=None,
         help="Read yt-dlp cookies from a logged-in browser profile.",
     )
@@ -45,14 +56,18 @@ def _add_cookie_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def _add_download_options(parser: argparse.ArgumentParser) -> None:
+def _add_download_options(
+    parser: argparse.ArgumentParser,
+    config: AppConfig,
+    use_config_output_dir: bool = True,
+) -> None:
     parser.add_argument(
         "--output-dir",
-        default=CONFIG.output_dir,
+        default=config.output_dir if use_config_output_dir else None,
         type=Path,
         help="Directory where downloaded media and archives are written.",
     )
-    _add_cookie_options(parser)
+    _add_cookie_options(parser, config)
     parser.add_argument(
         "--archive-file",
         default=None,
@@ -70,6 +85,30 @@ def _add_download_options(parser: argparse.ArgumentParser) -> None:
         default=CONFIG.comments_limit,
         type=non_negative_int,
         help="Extract the first N comments per video; use 0 to disable.",
+    )
+    parser.add_argument(
+        "--format",
+        dest="format_selector",
+        default=config.format_selector,
+        help="yt-dlp format selector, for example `bestvideo+bestaudio/best`.",
+    )
+    parser.add_argument(
+        "--audio-only",
+        action=argparse.BooleanOptionalAction,
+        default=config.audio_only,
+        help="Download audio only and extract it as mp3.",
+    )
+    parser.add_argument(
+        "--write-thumbnail",
+        action=argparse.BooleanOptionalAction,
+        default=config.write_thumbnail,
+        help="Ask yt-dlp to write the media thumbnail.",
+    )
+    parser.add_argument(
+        "--metadata-only",
+        action=argparse.BooleanOptionalAction,
+        default=config.metadata_only,
+        help="Extract metadata, tags, and comments without downloading media.",
     )
     parser.add_argument(
         "--overwrite",
@@ -91,21 +130,21 @@ def _add_download_options(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(skip_existing=True)
 
 
-def _add_scrape_options(parser: argparse.ArgumentParser) -> None:
+def _add_scrape_options(parser: argparse.ArgumentParser, config: AppConfig) -> None:
     parser.add_argument(
         "--start-url",
-        default=CONFIG.instagram_login_url,
+        default=config.instagram_login_url,
         help="Page opened before manual navigation.",
     )
     parser.add_argument(
         "--profile-dir",
-        default=CONFIG.profile_dir,
+        default=config.profile_dir,
         type=Path,
         help="Local persistent Playwright profile directory.",
     )
     parser.add_argument(
         "--scrolls",
-        default=CONFIG.scrolls,
+        default=config.scrolls,
         type=non_negative_int,
         help="Number of scroll gestures to perform.",
     )
@@ -116,15 +155,27 @@ def _add_scrape_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--scroll-delay-ms",
-        default=CONFIG.scroll_delay_ms,
+        default=config.scroll_delay_ms,
         type=non_negative_int,
         help="Delay after each scroll.",
     )
     parser.add_argument(
         "--scroll-pixels",
-        default=CONFIG.scroll_pixels,
+        default=config.scroll_pixels,
         type=positive_int,
         help="Vertical pixels per scroll gesture.",
+    )
+    parser.add_argument(
+        "--browser-width",
+        default=config.browser_width,
+        type=positive_int,
+        help="Browser viewport width in pixels.",
+    )
+    parser.add_argument(
+        "--browser-height",
+        default=config.browser_height,
+        type=positive_int,
+        help="Browser viewport height in pixels.",
     )
     parser.add_argument(
         "--limit",
@@ -161,6 +212,8 @@ def _scrape_config_from_args(args: argparse.Namespace) -> ScrapeConfig:
         max_idle_scrolls=args.max_idle_scrolls,
         stop_when_no_new=args.stop_when_no_new,
         headless=args.headless,
+        browser_width=args.browser_width,
+        browser_height=args.browser_height,
     )
 
 
@@ -178,6 +231,10 @@ def _download_config_from_args(
         archive_file=args.archive_file,
         retries=args.retries,
         comments_limit=args.comments_limit,
+        format_selector=args.format_selector,
+        audio_only=args.audio_only,
+        write_thumbnail=args.write_thumbnail,
+        metadata_only=args.metadata_only,
         skip_existing=args.skip_existing,
         dry_run=args.dry_run,
         command=command,
@@ -203,6 +260,8 @@ def run_normalize_command(args: argparse.Namespace) -> int:
 
 def run_scrape_command(args: argparse.Namespace) -> int:
     urls = scrape_visible_urls(_scrape_config_from_args(args))
+    if args.append and args.output.exists():
+        urls = merge_url_lists(load_urls_from_file(args.output), urls)
     write_urls_to_file(urls, args.output)
     LOGGER.info("Scraped URLs: %s", len(urls))
     LOGGER.info("File written: %s", args.output)
@@ -219,7 +278,9 @@ def run_download_command(args: argparse.Namespace) -> int:
 
 def run_backup_command(args: argparse.Namespace) -> int:
     scraped_urls = scrape_visible_urls(_scrape_config_from_args(args))
-    urls_output = args.urls_output or args.output_dir / CONFIG.urls_output
+    urls_output = args.urls_output or args.output_dir / _app_config(args).urls_output
+    if args.append and urls_output.exists():
+        scraped_urls = merge_url_lists(load_urls_from_file(urls_output), scraped_urls)
     write_urls_to_file(scraped_urls, urls_output)
     LOGGER.info("Scraped URLs: %s", len(scraped_urls))
     LOGGER.info("URL file written: %s", urls_output)
@@ -251,6 +312,8 @@ def run_browser_scrape_command(args: argparse.Namespace) -> int:
     LOGGER.warning("`browser-scrape` is deprecated; use `scrape` or `backup` instead.")
     args.output = args.urls_output
     urls = scrape_visible_urls(_scrape_config_from_args(args))
+    if args.append and args.urls_output.exists():
+        urls = merge_url_lists(load_urls_from_file(args.urls_output), urls)
     write_urls_to_file(urls, args.urls_output)
     LOGGER.info("Scraped URLs: %s", len(urls))
     LOGGER.info("File written: %s", args.urls_output)
@@ -264,9 +327,119 @@ def run_browser_scrape_command(args: argparse.Namespace) -> int:
     return 1 if report.failed_count else 0
 
 
-def build_argument_parser() -> argparse.ArgumentParser:
+def run_retry_command(args: argparse.Namespace) -> int:
+    original_report = read_report_file(args.report)
+    urls = failed_urls_from_report(original_report)
+    if not urls:
+        LOGGER.info("No failed URLs to retry.")
+        return 0
+
+    if args.output_dir is None:
+        metadata_output_dir = original_report.metadata.get("output_dir")
+        args.output_dir = (
+            Path(metadata_output_dir)
+            if metadata_output_dir
+            else _app_config(args).output_dir
+        )
+
+    report = download_urls(_download_config_from_args(args, urls, "retry", "report"))
+    report.metadata["retry_report"] = str(args.report)
+    _write_download_reports(args, report)
+    LOGGER.info("Retried URLs: %s", len(urls))
+    LOGGER.info("Status counts: %s", report.status_counts())
+    return 1 if report.failed_count else 0
+
+
+def run_summary_command(args: argparse.Namespace) -> int:
+    report = read_report_file(args.report)
+    summary = summarize_report(report, top=args.top)
+    print(_format_summary(summary))
+    return 0
+
+
+def run_gallery_command(args: argparse.Namespace) -> int:
+    report = read_report_file(args.report)
+    output = args.output or args.report.parent / "index.html"
+    write_html_gallery(report, output)
+    LOGGER.info("Gallery written: %s", output)
+    return 0
+
+
+def run_diff_command(args: argparse.Namespace) -> int:
+    diff = diff_url_files(args.old, args.new)
+    print(_format_url_diff(diff))
+    return 0
+
+
+def _format_summary(summary: dict) -> str:
+    lines = [
+        f"Command: {summary['command']}",
+        f"Started: {summary['started_at'] or 'unknown'}",
+        f"Finished: {summary['finished_at'] or 'unknown'}",
+        f"Total URLs: {summary['total_urls']}",
+        f"Comments saved: {summary['comment_count']}",
+        f"Status counts: {_format_counts(summary['status_counts'])}",
+    ]
+    if summary["error_type_counts"]:
+        lines.append(f"Error types: {_format_counts(summary['error_type_counts'])}")
+    if summary["top_tags"]:
+        tags = ", ".join(f"#{tag} ({count})" for tag, count in summary["top_tags"])
+        lines.append(f"Top tags: {tags}")
+    if summary["failed_urls"]:
+        lines.append("Failed URLs:")
+        lines.extend(f"  {url}" for url in summary["failed_urls"])
+    if summary["output_paths"]:
+        lines.append("Output paths:")
+        lines.extend(f"  {path}" for path in summary["output_paths"])
+    return "\n".join(lines)
+
+
+def _format_url_diff(diff: dict[str, list[str]]) -> str:
+    lines: list[str] = []
+    for label in ("added", "removed", "shared"):
+        urls = diff[label]
+        lines.append(f"{label.title()} ({len(urls)}):")
+        lines.extend(f"  {url}" for url in urls)
+    return "\n".join(lines)
+
+
+def _format_counts(counts: dict[str, int]) -> str:
+    if not counts:
+        return "none"
+    return ", ".join(f"{key}: {value}" for key, value in sorted(counts.items()))
+
+
+def _extract_config_arg(argv: Sequence[str] | None) -> tuple[Path | None, list[str]]:
+    args = list(sys.argv[1:] if argv is None else argv)
+    cleaned_args: list[str] = []
+    config_file: Path | None = None
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--config":
+            if index + 1 >= len(args):
+                raise ValueError("--config requires a path.")
+            config_file = Path(args[index + 1])
+            index += 2
+            continue
+        if arg.startswith("--config="):
+            config_file = Path(arg.split("=", 1)[1])
+            index += 1
+            continue
+        cleaned_args.append(arg)
+        index += 1
+    return config_file, cleaned_args
+
+
+def build_argument_parser(app_config: AppConfig = CONFIG) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Back up visible Instagram reel/post/tv URLs from your own browser session."
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        type=Path,
+        help="Read defaults from a TOML config file instead of the packaged config.",
     )
     parser.add_argument(
         "--verbose",
@@ -282,7 +455,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
     normalize_parser.add_argument("--input", required=True, type=Path, help="Input text file.")
     normalize_parser.add_argument(
         "--output",
-        default=CONFIG.resolved_urls_output,
+        default=app_config.resolved_urls_output,
         type=Path,
         help="Normalized URL output file.",
     )
@@ -294,11 +467,16 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     scrape_parser.add_argument(
         "--output",
-        default=CONFIG.urls_output,
+        default=app_config.urls_output,
         type=Path,
         help="Scraped URL output file.",
     )
-    _add_scrape_options(scrape_parser)
+    scrape_parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Merge scraped URLs into the existing output file instead of replacing it.",
+    )
+    _add_scrape_options(scrape_parser, app_config)
     scrape_parser.set_defaults(func=run_scrape_command)
 
     download_parser = subparsers.add_parser(
@@ -306,22 +484,69 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Download URLs from a text file with yt-dlp.",
     )
     download_parser.add_argument("--input", required=True, type=Path, help="Input URL file.")
-    _add_download_options(download_parser)
+    _add_download_options(download_parser, app_config)
     download_parser.set_defaults(func=run_download_command)
 
     backup_parser = subparsers.add_parser(
         "backup",
         help="Scrape visible URLs, save them, download them, and write reports.",
     )
-    _add_scrape_options(backup_parser)
-    _add_download_options(backup_parser)
+    _add_scrape_options(backup_parser, app_config)
+    _add_download_options(backup_parser, app_config)
     backup_parser.add_argument(
         "--urls-output",
         default=None,
         type=Path,
         help="Scraped URL file. Defaults to OUTPUT_DIR/scraped_instagram_urls.txt.",
     )
+    backup_parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Merge scraped URLs into the existing URL file before downloading.",
+    )
     backup_parser.set_defaults(func=run_backup_command)
+
+    retry_parser = subparsers.add_parser(
+        "retry",
+        help="Retry failed URLs from a previous JSON report.",
+    )
+    retry_parser.add_argument("--report", required=True, type=Path, help="JSON report file.")
+    _add_download_options(retry_parser, app_config, use_config_output_dir=False)
+    retry_parser.set_defaults(func=run_retry_command)
+
+    summary_parser = subparsers.add_parser(
+        "summary",
+        help="Print a readable summary of a JSON report.",
+    )
+    summary_parser.add_argument("--report", required=True, type=Path, help="JSON report file.")
+    summary_parser.add_argument(
+        "--top",
+        default=10,
+        type=positive_int,
+        help="Number of top hashtags to show.",
+    )
+    summary_parser.set_defaults(func=run_summary_command)
+
+    gallery_parser = subparsers.add_parser(
+        "gallery",
+        help="Write a local HTML gallery from a JSON report.",
+    )
+    gallery_parser.add_argument("--report", required=True, type=Path, help="JSON report file.")
+    gallery_parser.add_argument(
+        "--output",
+        default=None,
+        type=Path,
+        help="HTML output file. Defaults to index.html next to the report.",
+    )
+    gallery_parser.set_defaults(func=run_gallery_command)
+
+    diff_parser = subparsers.add_parser(
+        "diff",
+        help="Compare two URL files.",
+    )
+    diff_parser.add_argument("--old", required=True, type=Path, help="Earlier URL file.")
+    diff_parser.add_argument("--new", required=True, type=Path, help="Newer URL file.")
+    diff_parser.set_defaults(func=run_diff_command)
 
     workaround_parser = subparsers.add_parser(
         "workaround",
@@ -330,11 +555,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
     workaround_parser.add_argument("--urls-file", required=True, type=Path, help="Input URL file.")
     workaround_parser.add_argument(
         "--resolved-urls-file",
-        default=CONFIG.resolved_urls_output,
+        default=app_config.resolved_urls_output,
         type=Path,
         help="Normalized URL output file.",
     )
-    _add_download_options(workaround_parser)
+    _add_download_options(workaround_parser, app_config)
     workaround_parser.add_argument(
         "--download",
         action="store_true",
@@ -348,12 +573,17 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     browser_parser.add_argument(
         "--urls-output",
-        default=CONFIG.urls_output,
+        default=app_config.urls_output,
         type=Path,
         help="Scraped URL output file.",
     )
-    _add_scrape_options(browser_parser)
-    _add_download_options(browser_parser)
+    _add_scrape_options(browser_parser, app_config)
+    _add_download_options(browser_parser, app_config)
+    browser_parser.add_argument(
+        "--append",
+        action="store_true",
+        help="Merge scraped URLs into the existing URL file instead of replacing it.",
+    )
     browser_parser.add_argument(
         "--download",
         action="store_true",
@@ -366,8 +596,17 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s")
-    parser = build_argument_parser()
-    args = parser.parse_args(argv)
+    try:
+        config_file, parse_argv = _extract_config_arg(argv)
+        app_config = load_config(config_file)
+    except (FileNotFoundError, OSError, KeyError, TypeError, ValueError) as exc:
+        LOGGER.error("Could not load config: %s", exc)
+        return 1
+
+    parser = build_argument_parser(app_config)
+    args = parser.parse_args(parse_argv)
+    args.config = config_file
+    args.app_config = app_config
 
     if args.verbose:
         logging.getLogger().setLevel(logging.DEBUG)
