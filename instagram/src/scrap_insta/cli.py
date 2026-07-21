@@ -6,11 +6,15 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .archive import duplicate_groups, index_report, resolve_archive_db, search_archive
 from .browser import scrape_visible_urls
 from .config import CONFIG, AppConfig, load_config
+from .doctor import doctor_has_failures, format_doctor_checks, run_doctor_checks
 from .downloader import download_urls
+from .duplicates import annotate_duplicates
 from .files import diff_url_files, load_urls_from_file, merge_url_lists, write_urls_to_file
 from .gallery import write_html_gallery
+from .history import resolve_history_dir, run_id_for
 from .models import DownloadConfig, ScrapeConfig
 from .reports import (
     failed_urls_from_report,
@@ -76,13 +80,13 @@ def _add_download_options(
     )
     parser.add_argument(
         "--retries",
-        default=CONFIG.retries,
+        default=config.retries,
         type=non_negative_int,
         help="Number of yt-dlp retries per URL.",
     )
     parser.add_argument(
         "--comments-limit",
-        default=CONFIG.comments_limit,
+        default=config.comments_limit,
         type=non_negative_int,
         help="Extract the first N comments per video; use 0 to disable.",
     )
@@ -126,6 +130,30 @@ def _add_download_options(
         default=None,
         type=Path,
         help="Directory for JSON and CSV run reports. Defaults to OUTPUT_DIR.",
+    )
+    parser.add_argument(
+        "--run-history",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also write this run's reports under HISTORY_DIR/RUN_ID.",
+    )
+    parser.add_argument(
+        "--history-dir",
+        default=config.history_dir,
+        type=Path,
+        help="Run history directory. Relative paths are under the report directory.",
+    )
+    parser.add_argument(
+        "--index",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Update the SQLite archive index after writing reports.",
+    )
+    parser.add_argument(
+        "--archive-db",
+        default=config.archive_db,
+        type=Path,
+        help="SQLite archive index. Relative paths are under OUTPUT_DIR.",
     )
     parser.set_defaults(skip_existing=True)
 
@@ -185,7 +213,7 @@ def _add_scrape_options(parser: argparse.ArgumentParser, config: AppConfig) -> N
     )
     parser.add_argument(
         "--max-idle-scrolls",
-        default=CONFIG.max_idle_scrolls,
+        default=config.max_idle_scrolls,
         type=positive_int,
         help="Idle scrolls allowed before stopping when --stop-when-no-new is set.",
     )
@@ -228,6 +256,7 @@ def _download_config_from_args(
         output_dir=args.output_dir,
         cookies_from_browser=args.cookies_from_browser,
         cookies_file=args.cookies_file,
+        cookie_browser_choices=_app_config(args).cookie_browser_choices,
         archive_file=args.archive_file,
         retries=args.retries,
         comments_limit=args.comments_limit,
@@ -243,10 +272,29 @@ def _download_config_from_args(
 
 
 def _write_download_reports(args: argparse.Namespace, report) -> tuple[Path, Path]:
+    report = annotate_duplicates(report)
     report_dir = args.report_dir or args.output_dir
+    report.metadata.setdefault("run_id", run_id_for(report))
+    report.metadata["archive_db"] = str(resolve_archive_db(args.output_dir, args.archive_db))
+
+    if args.run_history:
+        run_dir = resolve_history_dir(report_dir, args.history_dir) / report.metadata["run_id"]
+        report.metadata["run_dir"] = str(run_dir)
+
     json_path, csv_path = write_report_files(report, report_dir)
     LOGGER.info("Report written: %s", json_path)
     LOGGER.info("Report written: %s", csv_path)
+
+    if args.run_history:
+        history_json_path, history_csv_path = write_report_files(report, run_dir)
+        LOGGER.info("History report written: %s", history_json_path)
+        LOGGER.info("History report written: %s", history_csv_path)
+
+    if args.index:
+        db_path = resolve_archive_db(args.output_dir, args.archive_db)
+        index_report(report, db_path)
+        LOGGER.info("Archive index updated: %s", db_path)
+
     return json_path, csv_path
 
 
@@ -371,6 +419,33 @@ def run_diff_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_doctor_command(args: argparse.Namespace) -> int:
+    checks = run_doctor_checks(
+        _app_config(args),
+        cookies_from_browser=args.cookies_from_browser,
+        cookies_file=args.cookies_file,
+    )
+    print(format_doctor_checks(checks))
+    return 1 if doctor_has_failures(checks) else 0
+
+
+def run_search_command(args: argparse.Namespace) -> int:
+    db_path = resolve_archive_db(args.output_dir, args.archive_db)
+    if args.duplicates:
+        print(_format_duplicate_groups(duplicate_groups(db_path)))
+        return 0
+
+    rows = search_archive(
+        db_path,
+        query=args.query,
+        status=args.status,
+        tag=args.tag,
+        limit=args.limit,
+    )
+    print(_format_search_rows(rows))
+    return 0
+
+
 def _format_summary(summary: dict) -> str:
     lines = [
         f"Command: {summary['command']}",
@@ -378,6 +453,7 @@ def _format_summary(summary: dict) -> str:
         f"Finished: {summary['finished_at'] or 'unknown'}",
         f"Total URLs: {summary['total_urls']}",
         f"Comments saved: {summary['comment_count']}",
+        f"Duplicates: {summary['duplicate_count']}",
         f"Status counts: {_format_counts(summary['status_counts'])}",
     ]
     if summary["error_type_counts"]:
@@ -400,6 +476,38 @@ def _format_url_diff(diff: dict[str, list[str]]) -> str:
         urls = diff[label]
         lines.append(f"{label.title()} ({len(urls)}):")
         lines.extend(f"  {url}" for url in urls)
+    return "\n".join(lines)
+
+
+def _format_search_rows(rows: list[dict]) -> str:
+    if not rows:
+        return "No archive items matched."
+
+    lines: list[str] = []
+    for row in rows:
+        parts = [row["status"], row["url"]]
+        if row.get("media_id"):
+            parts.append(f"media={row['media_id']}")
+        if row.get("duplicate_of"):
+            parts.append(f"duplicate_of={row['duplicate_of']}")
+        if row.get("output_path"):
+            parts.append(str(row["output_path"]))
+        lines.append(" | ".join(parts))
+        if row.get("description"):
+            lines.append(f"  {row['description']}")
+        if row.get("tags"):
+            lines.append("  " + " ".join(f"#{tag}" for tag in row["tags"]))
+    return "\n".join(lines)
+
+
+def _format_duplicate_groups(groups: list[dict]) -> str:
+    if not groups:
+        return "No duplicate media found."
+
+    lines: list[str] = []
+    for group in groups:
+        lines.append(f"{group['duplicate_key']} ({group['count']} URLs):")
+        lines.extend(f"  {url}" for url in group["urls"])
     return "\n".join(lines)
 
 
@@ -487,6 +595,13 @@ def build_argument_parser(app_config: AppConfig = CONFIG) -> argparse.ArgumentPa
     _add_download_options(download_parser, app_config)
     download_parser.set_defaults(func=run_download_command)
 
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Check local dependencies, config, paths, and cookie source.",
+    )
+    _add_cookie_options(doctor_parser, app_config)
+    doctor_parser.set_defaults(func=run_doctor_command)
+
     backup_parser = subparsers.add_parser(
         "backup",
         help="Scrape visible URLs, save them, download them, and write reports.",
@@ -547,6 +662,50 @@ def build_argument_parser(app_config: AppConfig = CONFIG) -> argparse.ArgumentPa
     diff_parser.add_argument("--old", required=True, type=Path, help="Earlier URL file.")
     diff_parser.add_argument("--new", required=True, type=Path, help="Newer URL file.")
     diff_parser.set_defaults(func=run_diff_command)
+
+    search_parser = subparsers.add_parser(
+        "search",
+        help="Search the SQLite archive index.",
+    )
+    search_parser.add_argument(
+        "--output-dir",
+        default=app_config.output_dir,
+        type=Path,
+        help="Output directory used to resolve a relative archive database path.",
+    )
+    search_parser.add_argument(
+        "--archive-db",
+        default=app_config.archive_db,
+        type=Path,
+        help="SQLite archive index. Relative paths are under OUTPUT_DIR.",
+    )
+    search_parser.add_argument(
+        "--query",
+        default=None,
+        help="Search URL, description, tags, and comments.",
+    )
+    search_parser.add_argument(
+        "--status",
+        default=None,
+        help="Filter by latest item status.",
+    )
+    search_parser.add_argument(
+        "--tag",
+        default=None,
+        help="Filter by saved hashtag.",
+    )
+    search_parser.add_argument(
+        "--duplicates",
+        action="store_true",
+        help="List duplicate media groups instead of normal search results.",
+    )
+    search_parser.add_argument(
+        "--limit",
+        default=20,
+        type=positive_int,
+        help="Maximum number of archive items to print.",
+    )
+    search_parser.set_defaults(func=run_search_command)
 
     workaround_parser = subparsers.add_parser(
         "workaround",

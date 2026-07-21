@@ -22,11 +22,12 @@ dev = [
 scrap-insta = "scrap_insta.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "../common/src"]
+include = ["scrap_insta*", "scrap_common*"]
 
 [tool.setuptools.package-data]
 scrap_insta = ["config.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "../common/src"]

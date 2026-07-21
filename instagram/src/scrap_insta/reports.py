@@ -12,9 +12,12 @@ REPORT_FIELDS = (
     "source",
     "status",
     "output_path",
+    "media_id",
+    "duplicate_of",
     "description",
     "tags",
     "comments",
+    "stats",
     "error_type",
     "error",
 )
@@ -37,6 +40,7 @@ def write_csv_report(report: RunReport, output_file: Path) -> None:
             row = item.to_dict()
             row["tags"] = json.dumps(row["tags"], ensure_ascii=False)
             row["comments"] = json.dumps(row["comments"], ensure_ascii=False)
+            row["stats"] = json.dumps(row["stats"], ensure_ascii=False)
             writer.writerow(row)
 
 
@@ -75,9 +79,16 @@ def read_report_file(report_file: Path) -> RunReport:
                 source=str(raw_item.get("source", "")),
                 status=str(raw_item.get("status", "")),
                 output_path=_optional_str(raw_item.get("output_path")),
+                media_id=_optional_str(raw_item.get("media_id")),
+                duplicate_of=_optional_str(raw_item.get("duplicate_of")),
                 description=_optional_str(raw_item.get("description")),
                 tags=_string_list(raw_item.get("tags")),
                 comments=_dict_list(raw_item.get("comments")),
+                stats=(
+                    raw_item.get("stats")
+                    if isinstance(raw_item.get("stats"), dict)
+                    else {}
+                ),
                 error_type=_optional_str(raw_item.get("error_type")),
                 error=_optional_str(raw_item.get("error")),
             )
@@ -99,6 +110,7 @@ def summarize_report(report: RunReport, top: int = 10) -> dict[str, Any]:
     comment_count = 0
     failed_urls: list[str] = []
     output_paths: list[str] = []
+    duplicate_count = 0
 
     for item in report.items:
         for tag in item.tags:
@@ -109,6 +121,8 @@ def summarize_report(report: RunReport, top: int = 10) -> dict[str, Any]:
             failed_urls.append(item.url)
         if item.output_path:
             output_paths.append(item.output_path)
+        if item.duplicate_of:
+            duplicate_count += 1
         comment_count += len(item.comments)
 
     return {
@@ -120,6 +134,7 @@ def summarize_report(report: RunReport, top: int = 10) -> dict[str, Any]:
         "error_type_counts": dict(sorted(error_type_counts.items())),
         "top_tags": sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))[:top],
         "comment_count": comment_count,
+        "duplicate_count": duplicate_count,
         "failed_urls": failed_urls,
         "output_paths": output_paths,
     }

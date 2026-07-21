@@ -1,0 +1,287 @@
+from __future__ import annotations
+
+import logging
+import re
+from pathlib import Path
+from typing import Any, Protocol
+
+from .models import DownloadItemResult, RunReport
+from .url_rules import PlatformUrlRules
+
+LOGGER = logging.getLogger(__name__)
+HASHTAG_RE = re.compile(r"(?<!\w)#(\w+)", re.UNICODE)
+
+
+class DownloadConfigProtocol(Protocol):
+    urls: list[str]
+    output_dir: Path
+    cookies_from_browser: str | None
+    cookies_file: Path | None
+    archive_file: Path | None
+    retries: int
+    comments_limit: int
+    format_selector: str | None
+    audio_only: bool
+    write_thumbnail: bool
+    metadata_only: bool
+    skip_existing: bool
+    dry_run: bool
+    command: str
+    source: str
+
+    def validate(self) -> None: ...
+
+
+def load_youtube_dl_class() -> type[Any]:
+    try:
+        from yt_dlp import YoutubeDL
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "yt-dlp is not installed. Install the project with `python -m pip install -e .`."
+        ) from exc
+    return YoutubeDL
+
+
+class YtDlpMediaDownloader:
+    def __init__(
+        self,
+        url_rules: PlatformUrlRules,
+        invalid_url_message: str,
+    ) -> None:
+        self.url_rules = url_rules
+        self.invalid_url_message = invalid_url_message
+
+    def archive_file_for(self, config: DownloadConfigProtocol) -> Path:
+        return config.archive_file or config.output_dir / "downloaded_archive.txt"
+
+    def build_options(self, config: DownloadConfigProtocol) -> dict[str, Any]:
+        options: dict[str, Any] = {
+            "outtmpl": str(config.output_dir / "%(uploader|channel|unknown)s_%(id)s.%(ext)s"),
+            "download_archive": str(self.archive_file_for(config)),
+            "ignoreerrors": False,
+            "noplaylist": not bool(getattr(config, "include_playlists", False)),
+            "retries": config.retries,
+            "continuedl": True,
+            "overwrites": not config.skip_existing,
+            "getcomments": config.comments_limit > 0,
+        }
+
+        if config.format_selector is not None:
+            options["format"] = config.format_selector
+        if config.audio_only:
+            options["format"] = config.format_selector or "bestaudio/best"
+            options["postprocessors"] = [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "0",
+                }
+            ]
+        if config.write_thumbnail:
+            options["writethumbnail"] = True
+        if config.metadata_only:
+            options["skip_download"] = True
+
+        if config.cookies_from_browser is not None:
+            options["cookiesfrombrowser"] = (config.cookies_from_browser,)
+        if config.cookies_file is not None:
+            options["cookiefile"] = str(config.cookies_file)
+
+        return options
+
+    def download(
+        self,
+        config: DownloadConfigProtocol,
+        youtube_dl_class: type[Any] | None = None,
+    ) -> RunReport:
+        config.validate()
+        report = RunReport(
+            command=config.command,
+            metadata={
+                "dry_run": config.dry_run,
+                "output_dir": str(config.output_dir),
+                "archive_file": str(self.archive_file_for(config)),
+                "comments_limit": config.comments_limit,
+                "include_playlists": bool(getattr(config, "include_playlists", False)),
+                "platform": self.url_rules.name,
+            },
+        )
+
+        normalized_urls, invalid_urls = self.url_rules.deduplicate_normalized_urls(config.urls)
+        for invalid_url in invalid_urls:
+            report.items.append(
+                DownloadItemResult(
+                    url=invalid_url,
+                    source=config.source,
+                    status="failed",
+                    error_type="invalid_url",
+                    error=self.invalid_url_message,
+                )
+            )
+
+        if config.dry_run:
+            for url in normalized_urls:
+                report.items.append(
+                    DownloadItemResult(url=url, source=config.source, status="dry_run")
+                )
+            return report.finish()
+
+        if not normalized_urls:
+            LOGGER.warning("No URL to download.")
+            return report.finish()
+
+        config.output_dir.mkdir(parents=True, exist_ok=True)
+        self.archive_file_for(config).parent.mkdir(parents=True, exist_ok=True)
+        downloader_type = youtube_dl_class or load_youtube_dl_class()
+        options = self.build_options(config)
+
+        with downloader_type(options) as downloader:
+            for url in normalized_urls:
+                try:
+                    info = downloader.extract_info(url, download=not config.metadata_only)
+                except Exception as exc:
+                    error = str(exc)
+                    report.items.append(
+                        DownloadItemResult(
+                            url=url,
+                            source=config.source,
+                            status="failed",
+                            error_type=classify_download_error(error),
+                            error=error,
+                        )
+                    )
+                    continue
+
+                if info is None:
+                    report.items.append(
+                        DownloadItemResult(
+                            url=url,
+                            source=config.source,
+                            status="failed",
+                            error_type="yt_dlp_error",
+                            error="yt-dlp returned no metadata.",
+                        )
+                    )
+                    continue
+
+                report.items.append(
+                    DownloadItemResult(
+                        url=url,
+                        source=config.source,
+                        status="metadata" if config.metadata_only else "downloaded",
+                        output_path=(
+                            None
+                            if config.metadata_only
+                            else _output_path_for(downloader, info)
+                        ),
+                        media_id=_media_id_for(info),
+                        description=(description := _description_for(info)),
+                        tags=_tags_for(info, description),
+                        comments=_comments_for(info, config.comments_limit),
+                        stats=_stats_for(info),
+                    )
+                )
+
+        return report.finish()
+
+
+def classify_download_error(error: str) -> str:
+    lowered = error.lower()
+    if "invalid" in lowered or "unsupported" in lowered:
+        return "invalid_url"
+    if "login" in lowered or "cookie" in lowered or "sign in" in lowered:
+        return "login_required"
+    if "private" in lowered:
+        return "private"
+    if "not found" in lowered or "404" in lowered or "unavailable" in lowered:
+        return "not_found"
+    if "rate" in lowered or "too many requests" in lowered or "429" in lowered:
+        return "rate_limited"
+    return "yt_dlp_error"
+
+
+def _output_path_for(downloader: Any, info: dict[str, Any] | None) -> str | None:
+    if not info:
+        return None
+    try:
+        return str(downloader.prepare_filename(info))
+    except Exception:
+        return None
+
+
+def _description_for(info: dict[str, Any]) -> str | None:
+    for field_name in ("description", "title"):
+        value = info.get(field_name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _tags_for(info: dict[str, Any], description: str | None) -> list[str]:
+    tags: list[str] = []
+    raw_tags = info.get("tags")
+    if isinstance(raw_tags, (list, tuple)):
+        tags.extend(tag.strip().lstrip("#") for tag in raw_tags if isinstance(tag, str))
+    if description:
+        tags.extend(HASHTAG_RE.findall(description))
+
+    return list(dict.fromkeys(tag for tag in tags if tag))
+
+
+def _comments_for(info: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    if limit == 0:
+        return []
+    raw_comments = info.get("comments")
+    if not isinstance(raw_comments, list):
+        return []
+
+    comments: list[dict[str, Any]] = []
+    fields = ("id", "author", "author_id", "text", "timestamp", "like_count", "parent")
+    for raw_comment in raw_comments:
+        if not isinstance(raw_comment, dict):
+            continue
+        comment = {
+            field_name: raw_comment[field_name]
+            for field_name in fields
+            if raw_comment.get(field_name) is not None
+        }
+        if comment:
+            comments.append(comment)
+        if len(comments) >= limit:
+            break
+    return comments
+
+
+def _stats_for(info: dict[str, Any]) -> dict[str, Any]:
+    fields = (
+        "view_count",
+        "like_count",
+        "comment_count",
+        "repost_count",
+        "retweet_count",
+        "reply_count",
+        "favorite_count",
+        "duration",
+        "upload_date",
+        "channel",
+        "channel_id",
+        "uploader",
+        "uploader_id",
+        "playlist",
+        "playlist_id",
+    )
+    return {
+        field_name: info[field_name]
+        for field_name in fields
+        if info.get(field_name) is not None
+    }
+
+
+def _media_id_for(info: dict[str, Any]) -> str | None:
+    extractor_key = info.get("extractor_key") or info.get("extractor")
+    raw_id = info.get("id")
+    if not raw_id:
+        return None
+    if extractor_key:
+        return f"{extractor_key}:{raw_id}"
+    return str(raw_id)

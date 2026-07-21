@@ -6,9 +6,11 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 SRC_DIR = PROJECT_ROOT / "src"
+COMMON_SRC_DIR = PROJECT_ROOT.parent / "common" / "src"
 
-if SRC_DIR.exists():
-    sys.path.insert(0, str(SRC_DIR))
+for path in (SRC_DIR, COMMON_SRC_DIR):
+    if path.exists():
+        sys.path.insert(0, str(path))
 
 from scrap_insta import extract_urls_from_text, normalize_instagram_url
 from scrap_insta.browser import extract_visible_instagram_urls, scrape_current_page_urls

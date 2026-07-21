@@ -5,6 +5,9 @@ import json
 import pytest
 
 from scrap_insta import cli
+from scrap_insta.archive import index_report
+from scrap_insta.doctor import DoctorCheck
+from scrap_insta.models import DownloadItemResult, RunReport
 
 
 def test_cli_help_exits_successfully(capsys) -> None:
@@ -96,6 +99,10 @@ def test_cli_download_dry_run_writes_reports(tmp_path) -> None:
 
     report = json.loads((output_dir / "download_report.json").read_text(encoding="utf-8"))
     assert report["status_counts"] == {"dry_run": 1}
+    assert "run_id" in report["metadata"]
+    assert (output_dir / "archive.sqlite3").exists()
+    history_reports = list((output_dir / "runs").glob("*/download_report.json"))
+    assert len(history_reports) == 1
 
 
 def test_cli_retry_uses_failed_urls_from_report(tmp_path) -> None:
@@ -174,6 +181,89 @@ def test_cli_summary_gallery_and_diff_commands(tmp_path, capsys) -> None:
     diff_output = capsys.readouterr().out
     assert "Added (1):" in diff_output
     assert "https://www.instagram.com/p/NEW/" in diff_output
+
+
+def test_cli_search_reads_archive_index(tmp_path, capsys) -> None:
+    db_path = tmp_path / "archive.sqlite3"
+    report = RunReport(
+        command="download",
+        metadata={"run_id": "run-search"},
+        items=[
+            DownloadItemResult(
+                url="https://www.instagram.com/reel/AAA/",
+                source="input",
+                status="downloaded",
+                media_id="same-media",
+                description="A searchable caption #tag",
+                tags=["tag"],
+            ),
+            DownloadItemResult(
+                url="https://www.instagram.com/p/BBB/",
+                source="input",
+                status="downloaded",
+                media_id="same-media",
+                duplicate_of="https://www.instagram.com/reel/AAA/",
+            ),
+        ],
+    ).finish()
+    index_report(report, db_path)
+
+    assert (
+        cli.main(
+            [
+                "search",
+                "--output-dir",
+                str(tmp_path),
+                "--query",
+                "caption",
+            ]
+        )
+        == 0
+    )
+    assert "https://www.instagram.com/reel/AAA/" in capsys.readouterr().out
+
+    assert (
+        cli.main(
+            [
+                "search",
+                "--output-dir",
+                str(tmp_path),
+                "--duplicates",
+            ]
+        )
+        == 0
+    )
+    duplicates_output = capsys.readouterr().out
+    assert "same-media (2 URLs):" in duplicates_output
+    assert "https://www.instagram.com/p/BBB/" in duplicates_output
+
+
+def test_cli_doctor_reports_checks(tmp_path, monkeypatch, capsys) -> None:
+    def fake_checks(config, cookies_from_browser=None, cookies_file=None):
+        return [
+            DoctorCheck("config", "pass", "ok"),
+            DoctorCheck("profile_dir", "warn", "missing"),
+        ]
+
+    monkeypatch.setattr(cli, "run_doctor_checks", fake_checks)
+
+    assert cli.main(["doctor"]) == 0
+    output = capsys.readouterr().out
+    assert "PASS config: ok" in output
+    assert "WARN profile_dir: missing" in output
+
+
+def test_cli_doctor_returns_failure_for_failed_checks(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        cli,
+        "run_doctor_checks",
+        lambda config, cookies_from_browser=None, cookies_file=None: [
+            DoctorCheck("yt_dlp", "fail", "missing")
+        ],
+    )
+
+    assert cli.main(["doctor"]) == 1
+    assert "FAIL yt_dlp: missing" in capsys.readouterr().out
 
 
 def test_cli_config_override_can_appear_after_subcommand(tmp_path) -> None:

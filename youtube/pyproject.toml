@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scrap-youtube"
+version = "0.1.0"
+description = "Personal YouTube visible-link backup CLI."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.44",
+    "yt-dlp>=2024.4.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+scrap-youtube = "scrap_youtube.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src", "../common/src"]
+include = ["scrap_youtube*", "scrap_common*"]
+
+[tool.setuptools.package-data]
+scrap_youtube = ["config.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../common/src"]

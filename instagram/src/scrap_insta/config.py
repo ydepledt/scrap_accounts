@@ -12,6 +12,8 @@ class AppConfig:
     profile_dir: Path
     urls_output: Path
     resolved_urls_output: Path
+    history_dir: Path
+    archive_db: Path
     scrolls: int
     scroll_delay_ms: int
     scroll_pixels: int
@@ -45,6 +47,8 @@ def load_config(config_file: Path | None = None) -> AppConfig:
         profile_dir=Path(paths["profile_dir"]),
         urls_output=Path(paths["urls_output"]),
         resolved_urls_output=Path(paths["resolved_urls_output"]),
+        history_dir=Path(paths.get("history_dir", "runs")),
+        archive_db=Path(paths.get("archive_db", "archive.sqlite3")),
         scrolls=scrape["scrolls"],
         scroll_delay_ms=scrape["scroll_delay_ms"],
         scroll_pixels=scrape["scroll_pixels"],

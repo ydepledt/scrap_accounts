@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from scrap_insta.duplicates import annotate_duplicates
 from scrap_insta.downloader import download_urls
 from scrap_insta.models import DownloadConfig
 
@@ -62,6 +63,7 @@ def test_download_urls_uses_injected_downloader_and_reports_results(tmp_path) ->
     assert report.items[0].status == "failed"
     assert report.items[0].error_type == "invalid_url"
     assert report.items[1].output_path == "/downloads/tester_AAA.mp4"
+    assert report.items[1].media_id == "AAA"
     assert report.items[1].description == "A test reel #python #scraping"
     assert report.items[1].tags == ["video", "python", "scraping"]
     assert report.items[1].comments == [
@@ -122,3 +124,23 @@ def test_download_urls_supports_metadata_only_and_media_options(tmp_path) -> Non
     assert options["skip_download"] is True
     assert options["writethumbnail"] is True
     assert options["postprocessors"][0]["key"] == "FFmpegExtractAudio"
+
+
+def test_annotate_duplicates_marks_later_matching_media(tmp_path) -> None:
+    FakeYoutubeDL.instances.clear()
+    report = download_urls(
+        DownloadConfig(
+            urls=[
+                "https://www.instagram.com/reel/AAA/",
+                "https://www.instagram.com/p/AAA/",
+            ],
+            output_dir=tmp_path,
+        ),
+        youtube_dl_class=FakeYoutubeDL,
+    )
+
+    annotate_duplicates(report)
+
+    assert report.metadata["duplicate_count"] == 1
+    assert report.items[0].duplicate_of is None
+    assert report.items[1].duplicate_of == "https://www.instagram.com/reel/AAA/"

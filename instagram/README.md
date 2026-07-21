@@ -13,8 +13,9 @@ python -m playwright install chromium
 
 If you only want URL normalization or dry-run commands, the CLI can show help without Playwright or yt-dlp being importable.
 
-Default paths, scraping values, download retries, media options, and supported cookie browsers are
-configured in `src/scrap_insta/config.toml`. Command-line options override these defaults.
+Default paths, scraping values, download retries, media options, run history,
+archive indexing, and supported cookie browsers are configured in
+`src/scrap_insta/config.toml`. Command-line options override these defaults.
 Use `--config custom.toml` before or after a subcommand to load a different config file.
 
 ## Commands
@@ -23,6 +24,12 @@ Normalize URLs from a pasted text file:
 
 ```bash
 scrap-insta normalize --input raw_urls.txt --output resolved_instagram_urls.txt
+```
+
+Check the local setup:
+
+```bash
+scrap-insta doctor --cookies-from-browser chrome
 ```
 
 Open a persistent browser profile, manually log in, navigate to Likes/Saved, then scrape visible links:
@@ -49,8 +56,8 @@ Download a normalized URL file:
 scrap-insta download --input scraped_instagram_urls.txt --output-dir instagram_downloads --cookies-from-browser chrome
 ```
 
-The download phase extracts each video's description, hashtags/tags, and the first
-10 comments into the JSON and CSV reports. Change the number with
+The download phase extracts each video's description, hashtags/tags, and the configured
+number of comments into the JSON and CSV reports. Change the number with
 `--comments-limit N` (or `comments_limit` in `config.toml`), and use `0` to skip
 comments:
 
@@ -78,7 +85,16 @@ scrap-insta backup --output-dir instagram_downloads --cookies-from-browser chrom
 ```
 
 Every download or backup run writes JSON and CSV reports with URL, source, status,
-output path, description, tags, comments, error type, and error details.
+output path, media ID, duplicate source URL, description, tags, comments, error
+type, and error details.
+
+Report-producing commands also update `archive.sqlite3` and write a timestamped
+history copy under `runs/RUN_ID/` by default. Disable those side effects with
+`--no-index` or `--no-run-history`:
+
+```bash
+scrap-insta download --input scraped_instagram_urls.txt --no-index --no-run-history
+```
 
 Retry failed URLs from a previous report:
 
@@ -102,6 +118,19 @@ Compare two URL files:
 
 ```bash
 scrap-insta diff --old previous_urls.txt --new scraped_instagram_urls.txt
+```
+
+Search the archive index:
+
+```bash
+scrap-insta search --query "vacation"
+scrap-insta search --tag travel --status downloaded
+```
+
+List duplicate media groups:
+
+```bash
+scrap-insta search --duplicates
 ```
 
 ## Compatibility

@@ -1,0 +1,33 @@
+[paths]
+output_dir = "youtube_downloads"
+profile_dir = ".youtube_playwright_profile"
+urls_output = "scraped_youtube_urls.txt"
+resolved_urls_output = "resolved_youtube_urls.txt"
+
+[scrape]
+start_url = "https://www.youtube.com/"
+scrolls = 80
+scroll_delay_ms = 1200
+scroll_pixels = 1800
+browser_width = 1280
+browser_height = 900
+max_idle_scrolls = 5
+
+[download]
+retries = 3
+comments_limit = 200
+format_selector = ""
+audio_only = false
+write_thumbnail = false
+metadata_only = false
+include_playlists = true
+cookie_browser_choices = [
+    "brave",
+    "chrome",
+    "chromium",
+    "edge",
+    "firefox",
+    "opera",
+    "safari",
+    "vivaldi",
+]
