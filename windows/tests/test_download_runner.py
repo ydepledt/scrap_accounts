@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import importlib
 import io
 import os
@@ -9,7 +10,15 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-import app
+def load_runner() -> str:
+    source = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
+    module = ast.parse(source)
+    for statement in module.body:
+        if isinstance(statement, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == "RUNNER" for target in statement.targets
+        ):
+            return ast.literal_eval(statement.value)
+    raise AssertionError("RUNNER not found")
 
 
 @pytest.mark.parametrize("action", ["download", "download_selected"])
@@ -65,7 +74,7 @@ def test_existing_urls_reach_download_cli_without_new_scrape(tmp_path, monkeypat
     monkeypatch.setattr(sys, "argv", ["-c", "Instagram", action, "100", "0", "25", "0"])
 
     with pytest.raises(SystemExit) as exc_info:
-        exec(app.RUNNER, {"__name__": "__main__"})
+        exec(load_runner(), {"__name__": "__main__"})
 
     assert exc_info.value.code == 0
     assert captured["urls"] == requested
