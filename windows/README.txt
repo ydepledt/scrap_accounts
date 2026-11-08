@@ -2,10 +2,18 @@ SCRAP ACCOUNTS — WINDOWS
 
 Ouvre ScrapAccounts.exe par un double-clic.
 
-1. Choisis Instagram, X ou YouTube, puis « Ouvrir le navigateur ».
-2. Connecte-toi dans Chromium et affiche la page à sauvegarder.
-3. Reviens dans l'application et clique sur « Commencer ».
-4. Quand la récupération est terminée, clique sur « Télécharger ».
+1. Choisis Instagram, X ou YouTube.
+2. Pour Instagram, colle directement les liens de Reels/publications et clique sur
+   « Ajouter les liens à ma collection » OU ouvre le navigateur et collecte des liens
+   en te connectant, en naviguant et en cliquant sur « Commencer ».
+3. Choisis combien de commentaires demander par publication (0 à 1 000).
+4. Clique sur « Télécharger » pour récupérer les médias et les métadonnées.
+5. Retrouve analysis_ready.jsonl (une ligne par URL) et analysis_ready.csv
+   dans le dossier Instagram/downloads ; les anciens rapports restent présents.
+
+Attention : les liens de profils Instagram ne sont pas directement importables.
+Les commentaires peuvent être partiels ou indisponibles suivant Instagram.
+Le code ne fait pas d'appel à une API d'intelligence artificielle.
 
 L'option métadonnées récupère les informations sans télécharger les médias.
 Les liens sont cumulés entre les sessions. Le maximum s'applique à chaque

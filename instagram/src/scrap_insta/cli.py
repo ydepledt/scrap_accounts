@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import Sequence
 
+from .ai_export import write_ai_export
 from .archive import duplicate_groups, index_report, resolve_archive_db, search_archive
 from .browser import scrape_visible_urls
 from .config import CONFIG, AppConfig, load_config
@@ -284,11 +285,14 @@ def _write_download_reports(args: argparse.Namespace, report) -> tuple[Path, Pat
     json_path, csv_path = write_report_files(report, report_dir)
     LOGGER.info("Report written: %s", json_path)
     LOGGER.info("Report written: %s", csv_path)
+    ai_jsonl, ai_csv = write_ai_export(report, report_dir)
+    LOGGER.info("AI-ready exports: %s | %s", ai_jsonl, ai_csv)
 
     if args.run_history:
         history_json_path, history_csv_path = write_report_files(report, run_dir)
         LOGGER.info("History report written: %s", history_json_path)
         LOGGER.info("History report written: %s", history_csv_path)
+        write_ai_export(report, run_dir)
 
     if args.index:
         db_path = resolve_archive_db(args.output_dir, args.archive_db)
@@ -410,6 +414,15 @@ def run_gallery_command(args: argparse.Namespace) -> int:
     output = args.output or args.report.parent / "index.html"
     write_html_gallery(report, output)
     LOGGER.info("Gallery written: %s", output)
+    return 0
+
+
+def run_export_ai_command(args: argparse.Namespace) -> int:
+    report = read_report_file(args.report)
+    jsonl_path, csv_path = write_ai_export(report, args.output_dir or args.report.parent)
+    LOGGER.info("AI-ready exports: %s | %s", jsonl_path, csv_path)
+    print(jsonl_path)
+    print(csv_path)
     return 0
 
 
@@ -654,6 +667,14 @@ def build_argument_parser(app_config: AppConfig = CONFIG) -> argparse.ArgumentPa
         help="HTML output file. Defaults to index.html next to the report.",
     )
     gallery_parser.set_defaults(func=run_gallery_command)
+
+    export_parser = subparsers.add_parser(
+        "export-ai",
+        help="Export an existing JSON report as AI-ready JSONL and CSV.",
+    )
+    export_parser.add_argument("--report", required=True, type=Path)
+    export_parser.add_argument("--output-dir", type=Path, default=None)
+    export_parser.set_defaults(func=run_export_ai_command)
 
     diff_parser = subparsers.add_parser(
         "diff",

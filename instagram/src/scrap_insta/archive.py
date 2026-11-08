@@ -78,10 +78,11 @@ def search_archive(
                 OR lower(coalesce(description, '')) LIKE ?
                 OR lower(tags_json) LIKE ?
                 OR lower(comments_json) LIKE ?
+                OR lower(metadata_json) LIKE ?
             )
             """
         )
-        values.extend([needle, needle, needle, needle])
+        values.extend([needle] * 5)
     if status:
         where.append("status = ?")
         values.append(status)
@@ -92,7 +93,7 @@ def search_archive(
     sql = """
         SELECT
             url, status, output_path, media_id, duplicate_of, description,
-            tags_json, comments_json, first_seen, last_seen, last_downloaded,
+            tags_json, comments_json, metadata_json, first_seen, last_seen, last_downloaded,
             error_type, error
         FROM archive_items
     """
@@ -161,6 +162,7 @@ def _init_schema(connection: sqlite3.Connection) -> None:
             description TEXT,
             tags_json TEXT NOT NULL,
             comments_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
             first_seen TEXT NOT NULL,
             last_seen TEXT NOT NULL,
             last_downloaded TEXT,
@@ -169,6 +171,10 @@ def _init_schema(connection: sqlite3.Connection) -> None:
         )
         """
     )
+    # Migrate databases created before the rich metadata export.
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(archive_items)")}
+    if "metadata_json" not in columns:
+        connection.execute("ALTER TABLE archive_items ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'")
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS archive_history (
@@ -199,18 +205,22 @@ def _upsert_item(
         INSERT INTO archive_items
             (
                 url, status, output_path, media_id, duplicate_of, description,
-                tags_json, comments_json, first_seen, last_seen, last_downloaded,
+                tags_json, comments_json, metadata_json, first_seen, last_seen, last_downloaded,
                 error_type, error
             )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(url) DO UPDATE SET
             status = excluded.status,
             output_path = coalesce(excluded.output_path, archive_items.output_path),
             media_id = coalesce(excluded.media_id, archive_items.media_id),
             duplicate_of = excluded.duplicate_of,
             description = coalesce(excluded.description, archive_items.description),
-            tags_json = excluded.tags_json,
-            comments_json = excluded.comments_json,
+            tags_json = CASE WHEN excluded.status = 'failed' THEN archive_items.tags_json ELSE excluded.tags_json END,
+            comments_json = CASE WHEN excluded.status = 'failed' THEN archive_items.comments_json ELSE excluded.comments_json END,
+            metadata_json = CASE
+                WHEN excluded.status = 'failed' OR excluded.metadata_json = '{}' THEN archive_items.metadata_json
+                ELSE excluded.metadata_json
+            END,
             last_seen = excluded.last_seen,
             last_downloaded = coalesce(excluded.last_downloaded, archive_items.last_downloaded),
             error_type = excluded.error_type,
@@ -225,6 +235,7 @@ def _upsert_item(
             item.description,
             json.dumps(item.tags, ensure_ascii=False),
             json.dumps(item.comments, ensure_ascii=False),
+            json.dumps(item.metadata, ensure_ascii=False),
             observed_at,
             observed_at,
             downloaded_at,
@@ -238,6 +249,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     result = dict(row)
     result["tags"] = json.loads(result.pop("tags_json"))
     result["comments"] = json.loads(result.pop("comments_json"))
+    result["metadata"] = json.loads(result.pop("metadata_json"))
     return result
 
 
