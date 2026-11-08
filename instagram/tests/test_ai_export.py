@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 
 from scrap_common.downloader import _media_file_paths, _metadata_for, _primary_media_info
 from scrap_insta.ai_export import record_for_item, write_ai_export
+from scrap_insta.archive import index_report, search_archive
 from scrap_insta.cli import main
 from scrap_insta.models import DownloadItemResult, RunReport
 from scrap_insta.reports import read_report_file, write_report_files
@@ -142,3 +144,34 @@ def test_existing_report_can_be_exported_via_cli(tmp_path) -> None:
     record = json.loads((tmp_path / "analysis_ready.jsonl").read_text().splitlines()[0])
     assert record["title"] == "A title"
     assert record["comments_retrieval"]["status"] == "not_returned_by_extractor"
+
+
+def test_archive_migrates_existing_database_and_indexes_title(tmp_path) -> None:
+    db = tmp_path / "archive.sqlite3"
+    with sqlite3.connect(db) as con:
+        con.execute("""
+            CREATE TABLE archive_items (
+                url TEXT PRIMARY KEY, status TEXT NOT NULL, output_path TEXT,
+                media_id TEXT, duplicate_of TEXT, description TEXT,
+                tags_json TEXT NOT NULL, comments_json TEXT NOT NULL,
+                first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+                last_downloaded TEXT, error_type TEXT, error TEXT
+            )
+        """)
+    item = DownloadItemResult(
+        url="https://www.instagram.com/reel/ABC/",
+        source="input", status="downloaded",
+        metadata={"title": "Funny game clip", "channel": "alice"},
+        comments=[{"text": "jeu incroyable"}],
+    )
+    index_report(RunReport(command="download", items=[item]).finish(), db)
+    matches = search_archive(db, query="Funny game")
+    assert len(matches) == 1
+    assert matches[0]["metadata"]["channel"] == "alice"
+
+    # Failed refreshes must not erase previously indexed metadata and comments.
+    failed = DownloadItemResult(url=item.url, source="input", status="failed", error="rate limit")
+    index_report(RunReport(command="retry", items=[failed]).finish(), db)
+    result = search_archive(db, query="Funny game")[0]
+    assert result["metadata"]["title"] == "Funny game clip"
+    assert result["comments"][0]["text"] == "jeu incroyable"
