@@ -57,9 +57,9 @@ def _comments_state(item: DownloadItemResult, limit: int) -> str:
 def record_for_item(item: DownloadItemResult, comments_limit: int = 0) -> dict[str, Any]:
     """One JSON-safe record per input URL, including failures and missing-data markers."""
     meta = item.metadata
-    username = meta.get("uploader_id") or meta.get("uploader")
+    username = meta.get("channel") or meta.get("uploader_id") or meta.get("uploader")
     title = meta.get("title") or meta.get("fulltitle") or meta.get("alt_title")
-    caption = item.description
+    caption = meta.get("description") if meta else item.description
     hashtags = _hashtags(caption)
     comments = item.comments
     # Representative texts only, without comment authors, for a cheaper future API call.
@@ -97,6 +97,8 @@ def record_for_item(item: DownloadItemResult, comments_limit: int = 0) -> dict[s
         "media": {
             "type": media_type,
             "local_path": item.output_path,
+            "local_files": meta.get("media_files") or ([item.output_path] if item.output_path else []),
+            "carousel_entries": meta.get("carousel_entries", []),
             "thumbnail_url": meta.get("thumbnail"),
             "duration_seconds": meta.get("duration") or item.stats.get("duration"),
             "width": meta.get("width"),
@@ -125,6 +127,7 @@ def record_for_item(item: DownloadItemResult, comments_limit: int = 0) -> dict[s
             "hashtags": hashtags,
             "representative_comments": representative,
             "local_media_path": item.output_path,
+            "local_media_files": meta.get("media_files") or ([item.output_path] if item.output_path else []),
             "instruction_hint": (
                 "Analyse aussi les images et l'audio du média, si accessibles. "
                 "Le texte seul ne suffit pas toujours à distinguer humour, conseils, jeux ou autres."
