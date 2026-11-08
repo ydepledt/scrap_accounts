@@ -14,7 +14,7 @@ import importlib, json, os, sys
 from pathlib import Path
 if os.getsid(0) != os.getpid(): os.setsid()
 print('APP_PID=' + str(os.getpid()), flush=True)
-platform, action, limit, metadata = sys.argv[1:]
+platform, action, limit, metadata, comments_limit, thumbnails = sys.argv[1:]
 base = Path.home() / '.local/share/scrap-accounts'
 folder = base / platform
 folder.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -22,6 +22,18 @@ os.chmod(base, 0o700)
 profile = folder / 'browser'
 urls = folder / 'urls.txt'
 module = importlib.import_module({'Instagram':'scrap_insta.cli','X':'scrap_twitter.cli','YouTube':'scrap_youtube.cli'}[platform])
+if action == 'import_urls':
+    if platform != 'Instagram':
+        raise SystemExit('L\'import direct d\'URLs est disponible pour Instagram.')
+    from scrap_insta.urls import extract_urls_from_text
+    from scrap_insta.files import load_urls_from_file, merge_url_lists, write_urls_to_file
+    imported = extract_urls_from_text(sys.stdin.read())
+    if not imported: raise SystemExit('Aucune URL de Reel ou de publication Instagram valide.')
+    previous = load_urls_from_file(urls) if urls.exists() else []
+    merged = merge_url_lists(previous, imported)
+    write_urls_to_file(merged, urls)
+    print(f'Ajout de {len(merged) - len(previous)} lien(s). Total : {len(merged)}', flush=True)
+    raise SystemExit(0)
 if action == 'scrape':
     args = ['scrape','--profile-dir',str(profile),'--output',str(urls),'--append','--limit',limit,'--stop-when-no-new','--unlimited-scrolls']
     if platform != 'Instagram': args += ['--source-page','manual']
@@ -46,8 +58,9 @@ elif action == 'download':
                 expires = max(0, int(c.get('expires', 0)))
                 f.write('\t'.join([domain, str(domain.startswith('.')).upper(), c['path'], str(c['secure']).upper(), str(expires), c['name'], c['value']]) + '\n')
         os.chmod(cookies_file, 0o600)
-        args = ['download','--input',str(urls),'--output-dir',str(folder / 'downloads'),'--cookies-file',str(cookies_file),'--comments-limit','0']
+        args = ['download','--input',str(urls),'--output-dir',str(folder / 'downloads'),'--cookies-file',str(cookies_file),'--comments-limit',comments_limit]
         if metadata == '1': args += ['--metadata-only']
+        if thumbnails == '1' and metadata != '1': args += ['--write-thumbnail']
         sys.argv = ['scrap-accounts'] + args
         raise SystemExit(module.main())
 '''
@@ -61,8 +74,8 @@ class App:
         self.pid = None
         self.events = queue.Queue()
         root.title('Scrap Accounts')
-        root.geometry('1040x740')
-        root.minsize(950, 680)
+        root.geometry('1040x850')
+        root.minsize(950, 740)
         root.configure(bg='#10131b')
         style = ttk.Style()
         style.theme_use('clam')
@@ -109,7 +122,20 @@ class App:
         ttk.Spinbox(row, from_=1, to=10000, textvariable=self.limit, width=7).pack(side='left')
         self.metadata = tk.BooleanVar(value=False)
         ttk.Checkbutton(card, text='Métadonnées uniquement — sans les médias', variable=self.metadata).pack(anchor='w', pady=(12,0))
-        ttk.Label(main, text='02  /  Connecte-toi, puis récupère', font=('Segoe UI',12,'bold')).pack(anchor='w', pady=(22,6))
+        comment_row = ttk.Frame(card, style='Card.TFrame')
+        comment_row.pack(fill='x', pady=(9,0))
+        ttk.Label(comment_row, text='Commentaires max par publication  ', style='Card.TLabel').pack(side='left')
+        self.comments_limit = tk.StringVar(value='100')
+        ttk.Spinbox(comment_row, from_=0, to=1000, textvariable=self.comments_limit, width=7).pack(side='left')
+        self.thumbnails = tk.BooleanVar(value=True)
+        ttk.Checkbutton(card, text='Télécharger aussi les miniatures', variable=self.thumbnails).pack(anchor='w', pady=(4,0))
+        ttk.Label(card, text='Les commentaires Instagram ne sont pas toujours fournis ; le rapport distingue les données manquantes.', style='Muted.TLabel', wraplength=630).pack(anchor='w', pady=(6,0))
+        ttk.Label(main, text='02  /  Ou colle directement tes liens Instagram', font=('Segoe UI',12,'bold')).pack(anchor='w', pady=(15,6))
+        self.pasted_urls = tk.Text(main, height=3, bg='#151b27', fg='#e8edf6', insertbackground='#e8edf6', relief='flat', padx=10, pady=8, wrap='word', font=('Consolas',10))
+        self.pasted_urls.pack(fill='x')
+        self.import_button = ttk.Button(main, text='Ajouter les liens à ma collection', command=lambda:self.start('import_urls'))
+        self.import_button.pack(anchor='w', pady=(8,4))
+        ttk.Label(main, text='03  /  Ou récupère les liens depuis le navigateur', font=('Segoe UI',12,'bold')).pack(anchor='w', pady=(14,6))
         ttk.Label(main, text='Ouvre le navigateur, affiche la page souhaitée, puis clique sur Commencer.', style='Muted.TLabel', wraplength=670).pack(anchor='w')
         buttons = ttk.Frame(main)
         buttons.pack(fill='x', pady=16)
@@ -143,17 +169,22 @@ class App:
         if self.proc is not None: return
         try:
             limit = int(self.limit.get())
-            if not 1 <= limit <= 10000: raise ValueError()
+            comments_limit = int(self.comments_limit.get())
+            if not 1 <= limit <= 10000 or not 0 <= comments_limit <= 1000: raise ValueError()
         except ValueError:
-            messagebox.showerror('Maximum de liens', 'Choisis un nombre entre 1 et 10 000.')
+            messagebox.showerror('Options invalides', 'Liens : 1-10 000. Commentaires : 0-1 000.')
+            return
+        if action == 'import_urls' and not self.pasted_urls.get('1.0', 'end-1c').strip():
+            messagebox.showinfo('Importer des liens', 'Colle des URL de Reels ou de publications Instagram.')
             return
         self.pid = None
         self.progress.start(12)
         self.scrape.configure(state='disabled')
         self.download.configure(state='disabled')
+        self.import_button.configure(state='disabled')
         self.choice.configure(state='disabled')
-        self.status.set('Ouverture…' if action == 'scrape' else 'Téléchargement…')
-        args = ['wsl.exe','-d','Ubuntu','--exec','/home/yannd/scrap_accounts/.venv/bin/python','-u','-c',RUNNER,self.platform.get(),action,str(limit),'1' if self.metadata.get() else '0']
+        self.status.set('Ouverture…' if action == 'scrape' else 'Import des liens…' if action == 'import_urls' else 'Téléchargement…')
+        args = ['wsl.exe','-d','Ubuntu','--exec','/home/yannd/scrap_accounts/.venv/bin/python','-u','-c',RUNNER,self.platform.get(),action,str(limit),'1' if self.metadata.get() else '0',str(comments_limit),'1' if self.thumbnails.get() else '0']
         try:
             self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', creationflags=CREATE_NO_WINDOW)
         except OSError as e:
@@ -161,6 +192,12 @@ class App:
             self.finish(-1)
             return
         self.stop.configure(state='normal')
+        if action == 'import_urls':
+            try:
+                self.proc.stdin.write(self.pasted_urls.get('1.0', 'end-1c'))
+                self.proc.stdin.close()
+            except OSError as exc:
+                self.append(str(exc) + '\\n')
         def read():
             proc = self.proc
             # Read characters because input() does not end its prompt with a newline.
@@ -205,6 +242,7 @@ class App:
         self.stop.configure(state='disabled')
         self.scrape.configure(state='normal')
         self.download.configure(state='normal')
+        self.import_button.configure(state='normal')
         self.choice.configure(state='readonly')
         self.status.set('Terminé' if code == 0 else 'Opération interrompue ou en erreur — voir le journal.')
 
