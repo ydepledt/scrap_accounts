@@ -21,6 +21,7 @@ class DownloadItemResult:
     tags: list[str] = field(default_factory=list)
     comments: list[dict[str, Any]] = field(default_factory=list)
     stats: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     error_type: str | None = None
     error: str | None = None
 
@@ -36,6 +37,7 @@ class DownloadItemResult:
             "tags": self.tags,
             "comments": self.comments,
             "stats": self.stats,
+            "metadata": self.metadata,
             "error_type": self.error_type,
             "error": self.error,
         }
