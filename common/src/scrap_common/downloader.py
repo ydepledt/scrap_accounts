@@ -179,6 +179,7 @@ class YtDlpMediaDownloader:
                         tags=_tags_for(info, description),
                         comments=_comments_for(info, config.comments_limit),
                         stats=_stats_for(info),
+                        metadata=_metadata_for(info),
                     )
                 )
 
@@ -285,3 +286,29 @@ def _media_id_for(info: dict[str, Any]) -> str | None:
     if extractor_key:
         return f"{extractor_key}:{raw_id}"
     return str(raw_id)
+
+
+# Explicit allowlist: do not export extractor headers, cookies or signed media URLs.
+_METADATA_FIELDS = (
+    "title", "fulltitle", "alt_title", "display_id", "webpage_url",
+    "uploader", "uploader_id", "uploader_url", "channel", "channel_id",
+    "channel_url", "creator", "timestamp", "release_timestamp",
+    "upload_date", "release_date", "duration", "thumbnail", "width",
+    "height", "fps", "resolution", "ext", "language", "categories",
+    "availability", "age_limit", "license", "location", "artist",
+    "track", "album", "extractor", "extractor_key",
+)
+
+
+def _metadata_for(info: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    for field in _METADATA_FIELDS:
+        value = info.get(field)
+        if isinstance(value, (str, int, float, bool)):
+            metadata[field] = value
+        elif isinstance(value, (list, tuple)):
+            # Categories and other user-visible labels, not arbitrary extractor objects.
+            labels = [label for label in value if isinstance(label, str)]
+            if labels:
+                metadata[field] = labels[:100]
+    return metadata
