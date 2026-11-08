@@ -18,6 +18,7 @@ REPORT_FIELDS = (
     "tags",
     "comments",
     "stats",
+    "metadata",
     "error_type",
     "error",
 )
@@ -41,6 +42,7 @@ def write_csv_report(report: RunReport, output_file: Path) -> None:
             row["tags"] = json.dumps(row["tags"], ensure_ascii=False)
             row["comments"] = json.dumps(row["comments"], ensure_ascii=False)
             row["stats"] = json.dumps(row["stats"], ensure_ascii=False)
+            row["metadata"] = json.dumps(row["metadata"], ensure_ascii=False)
             writer.writerow(row)
 
 
@@ -89,6 +91,7 @@ def read_report_file(report_file: Path) -> RunReport:
                     if isinstance(raw_item.get("stats"), dict)
                     else {}
                 ),
+                metadata=(raw_item.get("metadata") if isinstance(raw_item.get("metadata"), dict) else {}),
                 error_type=_optional_str(raw_item.get("error_type")),
                 error=_optional_str(raw_item.get("error")),
             )
