@@ -241,7 +241,11 @@ def _comments_for(info: dict[str, Any], limit: int) -> list[dict[str, Any]]:
         return []
 
     comments: list[dict[str, Any]] = []
-    fields = ("id", "author", "author_id", "text", "timestamp", "like_count", "parent")
+    fields = (
+        "id", "author", "author_id", "text", "timestamp", "like_count",
+        "parent", "dislike_count", "author_is_uploader", "author_is_verified",
+        "is_pinned", "is_favorited",
+    )
     for raw_comment in raw_comments:
         if not isinstance(raw_comment, dict):
             continue
@@ -260,6 +264,7 @@ def _comments_for(info: dict[str, Any], limit: int) -> list[dict[str, Any]]:
 def _stats_for(info: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "view_count",
+        "save_count",
         "like_count",
         "comment_count",
         "repost_count",
@@ -294,7 +299,7 @@ def _media_id_for(info: dict[str, Any]) -> str | None:
 
 # Explicit allowlist: do not export extractor headers, cookies or signed media URLs.
 _METADATA_FIELDS = (
-    "title", "fulltitle", "alt_title", "display_id", "webpage_url",
+    "title", "fulltitle", "alt_title", "description", "display_id", "webpage_url",
     "uploader", "uploader_id", "uploader_url", "channel", "channel_id",
     "channel_url", "creator", "timestamp", "release_timestamp",
     "upload_date", "release_date", "duration", "thumbnail", "width",
@@ -329,7 +334,10 @@ def _primary_media_info(info: dict[str, Any]) -> dict[str, Any]:
     if not entries:
         return info
     merged = dict(entries[0])
-    merged.update({key: value for key, value in info.items() if key != "entries" and value is not None})
+    merged.update({
+        key: value for key, value in info.items()
+        if key != "entries" and value is not None and value != [] and value != ""
+    })
     return merged
 
 
@@ -342,7 +350,9 @@ def _media_file_paths(downloader: Any, info: dict[str, Any]) -> list[str]:
             for item in requested:
                 if isinstance(item, dict) and isinstance(item.get("filepath"), str):
                     paths.append(item["filepath"])
-        if not requested:
+        if not requested or not any(
+            isinstance(item, dict) and item.get("filepath") for item in requested
+        ):
             path = _output_path_for(downloader, entry)
             if path:
                 paths.append(path)
