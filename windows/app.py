@@ -404,6 +404,9 @@ if __name__ == '__main__':
     if '--self-test' in sys.argv:
         root.update()
         assert app.platform.get() == 'Instagram'
+        assert app.tabs.tab(0, 'text') == 'Mes liens enregistrés'
+        app.refresh_links()
+        count = len(app.all_links)
         root.destroy()
-        print('Interface OK')
+        print(f'Interface OK - {count} liens enregistrés')
     else: root.mainloop()
