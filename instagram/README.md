@@ -149,3 +149,50 @@ Both commands are deprecated aliases for the clearer `normalize`, `scrape`, `dow
 - Use this only for content you can access legitimately in your browser.
 - Instagram UI changes can affect visible-link scraping.
 - `yt-dlp` support for Instagram may change over time; keep it updated if downloads start failing.
+
+## AI-ready exports: captions, metadata, comments and media
+
+Each `download`, `backup`, or `retry` run now writes alongside the normal reports:
+
+- `analysis_ready.jsonl`: **one JSON object per input URL** with title, caption,
+  hashtags, creator, publication date, video properties, cover, engagement,
+  available comments, and local media file paths (including carousels).
+- `analysis_ready.csv`: readable summary with comment coverage and useful fields.
+- The same files are preserved per run under `runs/<run_id>/` by default.
+
+`ai_input` contains the caption, title, hashtags and up to 30 representative
+comment texts. It is a starting point for a future classifier such as
+*humour*, *conseils*, *jeux vidéo*, *autre*. The `media.local_files` paths let
+a multimodal model inspect the video/audio, which is important when the joke
+or advice is not described in the caption. **No AI API call is made by this project.**
+
+Download up to 100 available comments per publication and keep the thumbnail:
+
+```bash
+scrap-insta download --input urls.txt --output-dir instagram_downloads \
+  --cookies-from-browser chrome --comments-limit 100 --write-thumbnail
+```
+
+Collect only text/metadata and whatever comments the extractor exposes:
+
+```bash
+scrap-insta download --input urls.txt --metadata-only \
+  --comments-limit 100 --cookies-from-browser chrome
+```
+
+Re-export a saved report without touching Instagram again:
+
+```bash
+scrap-insta export-ai --report instagram_downloads/download_report.json
+```
+
+The `comments_retrieval.status` value distinguishes disabled, unavailable,
+limit reached, partial/unverified, zero reported, and not returned by the
+extractor. **Requesting N comments does not guarantee N comments**, and the
+`exhaustive` flag is deliberately false. Instagram may restrict pages,
+return partial metadata, or invalidate cookies. Never invent missing values.
+
+For a URL list, use **individual post/reel/tv links**, not account homepage
+URLs. Posts visible in an authenticated browser can still be discovered using
+the existing `scrape` flow. Review any personal information in comments
+before sending a dataset to an external AI service.
