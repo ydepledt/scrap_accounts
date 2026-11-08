@@ -32,3 +32,21 @@ privé, supprimé à la fin de l'opération normale.
 
 Le code source de l'interface est fourni dans app.py.
 Les sites peuvent demander une reconnexion ou changer leur interface.
+
+
+BIBLIOTHÈQUE DE LIENS EXISTANTS
+
+L'onglet « Mes liens enregistrés » charge automatiquement les URL collectées
+lors des sessions précédentes, sans ouvrir de navigateur :
+  - sélectionner Instagram, X ou YouTube ;
+  - rechercher et sélectionner plusieurs liens avec Ctrl ou Maj ;
+  - « Télécharger tous les liens enregistrés » reprend toute la liste ;
+  - « Télécharger la sélection » traite uniquement les lignes sélectionnées ;
+  - « Importer un fichier .txt » ajoute une ancienne extraction Instagram
+    à la collection sans supprimer la liste existante ;
+  - « Actualiser » recharge le fichier après une nouvelle collecte.
+
+Les téléchargements restent dans le même dossier ; yt-dlp utilise son archive
+pour ignorer les médias déjà téléchargés. La sélection n'altère pas urls.txt.
+Les paramètres (commentaires, miniatures, métadonnées seules) s'appliquent
+également aux liens déjà enregistrés.
