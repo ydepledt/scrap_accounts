@@ -17,8 +17,8 @@ jobs:
       - name: Install test dependency
         run: python -m pip install pytest
       - name: Compile Python sources
-        run: python -m compileall -q common/src instagram/src windows/app.py
-      - name: Run Instagram unit tests
+        run: python -m compileall -q common/src instagram/src youtube/src twitter/src windows/app.py
+      - name: Run Instagram, YouTube and X unit tests
         env:
-          PYTHONPATH: ${{ github.workspace }}/common/src:${{ github.workspace }}/instagram/src
-        run: python -m pytest -q instagram/tests
+          PYTHONPATH: ${{ github.workspace }}/common/src:${{ github.workspace }}/instagram/src:${{ github.workspace }}/youtube/src:${{ github.workspace }}/twitter/src
+        run: python -m pytest -q instagram/tests youtube/tests twitter/tests
