@@ -11,7 +11,7 @@ from typing import Any
 
 from .models import DownloadItemResult, RunReport
 
-_HASHTAG = re.compile(r"(?<!\\w)#(\\w+)", re.UNICODE)
+_HASHTAG = re.compile(r"(?<!\w)#(\w+)", re.UNICODE)
 _CSV_COLUMNS = (
     "url", "status", "title", "caption", "hashtags", "username",
     "published_at", "media_type", "media_path", "thumbnail_url",
@@ -28,7 +28,7 @@ def _iso_date(meta: dict[str, Any]) -> str | None:
         except (OverflowError, OSError, ValueError):
             pass
     date = meta.get("upload_date") or meta.get("release_date")
-    if isinstance(date, str) and re.fullmatch(r"\\d{8}", date):
+    if isinstance(date, str) and re.fullmatch(r"\d{8}", date):
         try:
             return datetime.strptime(date, "%Y%m%d").date().isoformat()
         except ValueError:
@@ -152,7 +152,7 @@ def write_ai_export(report: RunReport, output_dir: Path) -> tuple[Path, Path]:
 
     with jsonl_path.open("w", encoding="utf-8") as output:
         for record in records:
-            output.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\\n")
+            output.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
 
     with csv_path.open("w", encoding="utf-8", newline="") as output:
         writer = csv.DictWriter(output, fieldnames=_CSV_COLUMNS)
