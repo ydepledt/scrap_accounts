@@ -21,4 +21,7 @@ jobs:
       - name: Run Instagram, YouTube and X unit tests
         env:
           PYTHONPATH: ${{ github.workspace }}/common/src:${{ github.workspace }}/instagram/src:${{ github.workspace }}/youtube/src:${{ github.workspace }}/twitter/src
-        run: python -m pytest -q instagram/tests youtube/tests twitter/tests
+        run: |
+          python -m pytest -q instagram/tests
+          python -m pytest -q youtube/tests
+          python -m pytest -q twitter/tests
