@@ -11,7 +11,7 @@ from tkinter import ttk, messagebox, filedialog
 
 from saved_links import saved_url_file, load_saved_urls, filter_saved_urls, pick_saved_urls
 
-SAVED_ROOT = Path(r'\\\\wsl.localhost\\Ubuntu\\home\\yannd\\.local\\share\\scrap-accounts')
+SAVED_ROOT = Path(r'\\wsl.localhost\Ubuntu\home\yannd\.local\share\scrap-accounts')
 
 RUNNER = r'''
 import importlib, json, os, sys
@@ -57,7 +57,7 @@ elif action in ('download', 'download_selected'):
             if not selected:
                 raise SystemExit('Aucun lien sélectionné.')
             input_file = Path(tmp) / 'selection.txt'
-            input_file.write_text('\\n'.join(selected) + '\\n', encoding='utf-8')
+            input_file.write_text('\n'.join(selected) + '\n', encoding='utf-8')
             input_file.chmod(0o600)
             print(f'Téléchargement des {len(selected)} liens sélectionnés.', flush=True)
         cookies_file = Path(tmp) / 'cookies.txt'
@@ -207,6 +207,8 @@ class App:
         self.download_selected_button = ttk.Button(actions, text='Télécharger la sélection',
                                                     command=self.download_selection)
         self.download_selected_button.pack(side='left', padx=7)
+        self.stop_saved = ttk.Button(actions, text='Arrêter', command=self.cancel, state='disabled')
+        self.stop_saved.pack(side='left')
         ttk.Label(library, text='Ctrl ou Maj pour sélectionner plusieurs lignes. Les médias déjà récupérés seront ignorés par l’archive.', style='Muted.TLabel',
                   wraplength=650).pack(anchor='w', pady=(9,0))
         self.choice.bind('<<ComboboxSelected>>', lambda _: self.refresh_links())
@@ -322,6 +324,7 @@ class App:
             self.finish(-1)
             return
         self.stop.configure(state='normal')
+        self.stop_saved.configure(state='normal')
         if action in ('import_urls', 'download_selected'):
             try:
                 self.proc.stdin.write(input_text)
@@ -370,6 +373,7 @@ class App:
         self.pid = None
         self.go.configure(state='disabled')
         self.stop.configure(state='disabled')
+        self.stop_saved.configure(state='disabled')
         self.scrape.configure(state='normal')
         self.refresh_button.configure(state='normal')
         self.import_button.configure(state='normal')
