@@ -81,6 +81,8 @@ class YtDlpMediaDownloader:
             options["writethumbnail"] = True
         if config.metadata_only:
             options["skip_download"] = True
+            # Do not mark metadata-only inspections as completed media downloads.
+            options.pop("download_archive", None)
 
         if config.cookies_from_browser is not None:
             options["cookiesfrombrowser"] = (config.cookies_from_browser,)
