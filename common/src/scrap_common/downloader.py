@@ -164,22 +164,26 @@ class YtDlpMediaDownloader:
                     )
                     continue
 
+                main_info = _primary_media_info(info)
+                media_files = [] if config.metadata_only else _media_file_paths(downloader, info)
+                metadata = _metadata_for(main_info)
+                if media_files:
+                    metadata["media_files"] = media_files
+                entries = _media_entries(info)
+                if entries:
+                    metadata["carousel_entries"] = [_metadata_for(entry) for entry in entries[:30]]
                 report.items.append(
                     DownloadItemResult(
                         url=url,
                         source=config.source,
                         status="metadata" if config.metadata_only else "downloaded",
-                        output_path=(
-                            None
-                            if config.metadata_only
-                            else _output_path_for(downloader, info)
-                        ),
-                        media_id=_media_id_for(info),
-                        description=(description := _description_for(info)),
-                        tags=_tags_for(info, description),
-                        comments=_comments_for(info, config.comments_limit),
-                        stats=_stats_for(info),
-                        metadata=_metadata_for(info),
+                        output_path=media_files[0] if media_files else None,
+                        media_id=_media_id_for(main_info),
+                        description=(description := _description_for(main_info)),
+                        tags=_tags_for(main_info, description),
+                        comments=_comments_for(main_info, config.comments_limit),
+                        stats=_stats_for(main_info),
+                        metadata=metadata,
                     )
                 )
 
@@ -312,3 +316,34 @@ def _metadata_for(info: dict[str, Any]) -> dict[str, Any]:
             if labels:
                 metadata[field] = labels[:100]
     return metadata
+
+
+def _media_entries(info: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = info.get("entries")
+    return [entry for entry in entries if isinstance(entry, dict)] if isinstance(entries, list) else []
+
+
+def _primary_media_info(info: dict[str, Any]) -> dict[str, Any]:
+    """Keep post-level metadata, filling absent fields from a carousel's first item."""
+    entries = _media_entries(info)
+    if not entries:
+        return info
+    merged = dict(entries[0])
+    merged.update({key: value for key, value in info.items() if key != "entries" and value is not None})
+    return merged
+
+
+def _media_file_paths(downloader: Any, info: dict[str, Any]) -> list[str]:
+    """Include every locally downloaded carousel item, not only a synthetic post path."""
+    paths: list[str] = []
+    for entry in _media_entries(info) or [info]:
+        requested = entry.get("requested_downloads")
+        if isinstance(requested, list):
+            for item in requested:
+                if isinstance(item, dict) and isinstance(item.get("filepath"), str):
+                    paths.append(item["filepath"])
+        if not requested:
+            path = _output_path_for(downloader, entry)
+            if path:
+                paths.append(path)
+    return list(dict.fromkeys(paths))
