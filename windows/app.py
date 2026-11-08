@@ -197,7 +197,7 @@ class App:
                 self.proc.stdin.write(self.pasted_urls.get('1.0', 'end-1c'))
                 self.proc.stdin.close()
             except OSError as exc:
-                self.append(str(exc) + '\\n')
+                self.append(str(exc) + '\n')
         def read():
             proc = self.proc
             # Read characters because input() does not end its prompt with a newline.
