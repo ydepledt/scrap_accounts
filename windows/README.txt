@@ -9,7 +9,7 @@ Ouvre ScrapAccounts.exe par un double-clic.
 3. Choisis combien de commentaires demander par publication (0 à 1 000).
 4. Clique sur « Télécharger » pour récupérer les médias et les métadonnées.
 5. Retrouve analysis_ready.jsonl (une ligne par URL) et analysis_ready.csv
-   dans le dossier downloads/Instagram ; les anciens rapports restent présents.
+   dans le dossier Instagram/downloads ; les anciens rapports restent présents.
 
 Attention : les liens de profils Instagram ne sont pas directement importables.
 Les commentaires peuvent être partiels ou indisponibles suivant Instagram.
